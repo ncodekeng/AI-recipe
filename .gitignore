@@ -1,0 +1,24 @@
+# .NET
+**/bin/
+**/obj/
+*.user
+
+# React / Vite
+**/node_modules/
+**/dist/
+*.local
+
+# Local secrets and uploads
+.env
+.env.*
+!.env.example
+appsettings.Development.json
+uploads/
+.runlogs/
+
+# Editors and operating systems
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
