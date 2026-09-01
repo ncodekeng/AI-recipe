@@ -48,6 +48,17 @@ Open `http://localhost:5173`. The API runs at `http://localhost:5050`, and Vite 
 
 Demo mode is enabled by default. Upload any food image to exercise the complete flow; descriptive filenames such as `tomatoes-and-spinach.jpg` are also understood by the deterministic demo recognizer.
 
+## Run the production container
+
+The production image compiles React and serves it from the ASP.NET application, so the public site and API share one origin:
+
+```powershell
+docker build -t mise-recipe .
+docker run --rm -p 8080:8080 mise-recipe
+```
+
+Open `http://localhost:8080`. The same image can be deployed directly to Azure Container Apps with external ingress targeting port 8080; Dapr is intentionally disabled while the application remains a single service.
+
 ## Connect Azure OpenAI
 
 Create an Azure OpenAI resource, deploy a vision-capable chat model, then set these environment variables before starting the API:

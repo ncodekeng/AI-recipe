@@ -33,6 +33,13 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 
+if (Directory.Exists(app.Environment.WebRootPath))
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+    app.MapFallbackToFile("index.html");
+}
+
 app.Run();
 
 public partial class Program;

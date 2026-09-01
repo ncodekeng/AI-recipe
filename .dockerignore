@@ -1,0 +1,14 @@
+.git
+.github
+.runlogs
+.vs
+.vscode
+**/bin
+**/obj
+client/node_modules
+client/dist
+sample-images
+*.user
+*.log
+README.md
+scripts
