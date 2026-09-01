@@ -12,6 +12,7 @@ builder.Services.AddSingleton<DemoFoodAiService>();
 builder.Services.AddSingleton<RecipeSafetyValidator>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<AiUsageGuard>();
+builder.Services.AddSingleton<FeedbackService>();
 builder.Services.AddHttpClient<AzureOpenAiClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(75);

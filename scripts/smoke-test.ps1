@@ -108,6 +108,34 @@ try {
         throw 'A custom avoided ingredient passed the deterministic safety validator.'
     }
 
+    $feedbackHeaders = @{ 'X-Plate-Client-Id' = 'smoke-feedback-client-0001' }
+    $feedbackBody = @{ rating = 5; message = 'Smoke test feedback' } | ConvertTo-Json
+    $feedback = Invoke-RestMethod `
+        -Uri 'http://localhost:5050/api/feedback' `
+        -Method Post `
+        -Headers $feedbackHeaders `
+        -ContentType 'application/json' `
+        -Body $feedbackBody
+    if ($feedback.status -ne 'received') {
+        throw 'Feedback submission failed.'
+    }
+
+    try {
+        Invoke-RestMethod `
+            -Uri 'http://localhost:5050/api/feedback' `
+            -Method Post `
+            -Headers $feedbackHeaders `
+            -ContentType 'application/json' `
+            -Body $feedbackBody | Out-Null
+        throw 'The feedback rate limit was not enforced.'
+    }
+    catch {
+        $feedbackStatusCode = [int]$_.Exception.Response.StatusCode
+        if ($feedbackStatusCode -ne 429) {
+            throw
+        }
+    }
+
     $quotaHeaders = @{ 'X-Plate-Client-Id' = 'smoke-quota-client-0001' }
     1..3 | ForEach-Object {
         Invoke-RestMethod `
@@ -141,6 +169,7 @@ try {
         Recipes = $generated.recipes.Count
         AllergyFilter = 'passed'
         CustomAvoidFilter = 'passed'
+        Feedback = 'passed'
         UsageQuota = 'passed'
     } | Format-List
 }

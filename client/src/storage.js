@@ -22,6 +22,8 @@ export function clearLocalData() {
   try {
     localStorage.removeItem(PREFERENCES_KEY)
     localStorage.removeItem(CLIENT_ID_KEY)
+    localStorage.removeItem('plate.saved.v1')
+    localStorage.removeItem('plate.history.v1')
   } catch {
     // There is nothing else to clear when browser storage is unavailable.
   }

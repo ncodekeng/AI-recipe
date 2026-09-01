@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { analyzePhotos, generateRecipes, getStatus, getUsage } from './api.js'
+import { analyzePhotos, generateRecipes, getStatus, getUsage, submitFeedback } from './api.js'
 import { clearLocalData, loadPreferences, savePreferences } from './storage.js'
+import {
+  addHistoryEntry,
+  clearLibrary,
+  loadHistory,
+  loadSavedRecipes,
+  removeSavedRecipe,
+  toggleSavedRecipe,
+} from './library.js'
 
 const ALLERGENS = [
   'Peanuts',
@@ -40,6 +48,9 @@ const DEFAULT_PREFERENCES = {
   servings: 2,
 }
 const INITIAL_PREFERENCES = { ...DEFAULT_PREFERENCES, ...loadPreferences() }
+const INITIAL_SAVED_RECIPES = loadSavedRecipes()
+const INITIAL_HISTORY = loadHistory()
+const DEFAULT_SAFETY_NOTE = 'No known conflicts were found from the listed ingredients. Always verify product labels, substitutions, and cross-contamination warnings.'
 
 const RECIPE_EMOJI = {
   coral: ['🍅', '🌿', '🍳'],
@@ -66,6 +77,8 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
     leaf: <><path d="M17.5 2.5C10 3 4.5 6.5 4.5 12c0 3 2.2 5 5 5 5.5 0 8-6 8-14.5Z"/><path d="M3 18c2-5 5.5-8.5 10.5-11.5"/></>,
     external: <><path d="M11 3h6v6"/><path d="m9 11 8-8"/><path d="M16 12v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h4"/></>,
     basket: <><path d="M3 8h14l-1 9H4L3 8Z"/><path d="m7 8 3-5 3 5"/><path d="M7 11v3M10 11v3M13 11v3"/></>,
+    bookmark: <path d="M5 3h10v14l-5-3-5 3V3Z"/>,
+    history: <><path d="M3 5v5h5"/><path d="M4 10a7 7 0 1 0 2-5"/><path d="M10 6v4l3 2"/></>,
   }
 
   return (
@@ -128,6 +141,161 @@ function PrivacyModal({ onClose, onClear }) {
           <p><strong>Only preferences stay here.</strong> This browser stores an anonymous usage ID plus your diet, allergen, time, serving, and avoidance settings. No recipe results are cached.</p>
         </div>
         <button className="secondary-button danger" type="button" onClick={onClear}>Clear this browser's data</button>
+      </article>
+    </div>
+  )
+}
+
+function LibraryModal({ savedRecipes, history, onClose, onOpenRecipe, onRemove, onRestore, onClear }) {
+  const [tab, setTab] = useState(savedRecipes.length ? 'saved' : 'history')
+
+  useEffect(() => {
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    document.body.classList.add('modal-open')
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape)
+      document.body.classList.remove('modal-open')
+    }
+  }, [onClose])
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <article className="library-modal" role="dialog" aria-modal="true" aria-labelledby="library-title">
+        <button className="modal-close" type="button" onClick={onClose} aria-label="Close saved recipes">
+          <Icon name="close" size={19} />
+        </button>
+        <p className="eyebrow"><Icon name="bookmark" size={17} /> Your kitchen library</p>
+        <h2 id="library-title">Saved & recent</h2>
+        <div className="library-tabs" role="tablist" aria-label="Kitchen library">
+          <button className={tab === 'saved' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'saved'} onClick={() => setTab('saved')}>
+            Saved <span>{savedRecipes.length}</span>
+          </button>
+          <button className={tab === 'history' ? 'active' : ''} type="button" role="tab" aria-selected={tab === 'history'} onClick={() => setTab('history')}>
+            History <span>{history.length}</span>
+          </button>
+        </div>
+
+        {tab === 'saved' && (
+          <div className="library-list">
+            {savedRecipes.length === 0 && <div className="library-empty"><Icon name="bookmark" size={24} /><p>Recipes you save will appear here.</p></div>}
+            {savedRecipes.map((recipe) => (
+              <article className="library-row" key={recipe.id}>
+                <div>
+                  <strong>{recipe.title}</strong>
+                  <span>{recipe.bookmarkOnly ? `From ${recipe.sourceName || 'original publisher'}` : `${recipe.cookingMinutes} min · ${recipe.cuisine}`}</span>
+                </div>
+                {recipe.bookmarkOnly
+                  ? <a href={recipe.sourceUrl} target="_blank" rel="noreferrer">Open source <Icon name="external" size={14} /></a>
+                  : <button type="button" onClick={() => onOpenRecipe(recipe)}>Open</button>}
+                <button className="library-remove" type="button" aria-label={`Remove ${recipe.title}`} onClick={() => onRemove(recipe.id)}>
+                  <Icon name="trash" size={16} />
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+
+        {tab === 'history' && (
+          <div className="library-list">
+            {history.length === 0 && <div className="library-empty"><Icon name="history" size={25} /><p>Your recent ingredient searches will appear here.</p></div>}
+            {history.map((entry) => (
+              <article className="library-row history-row" key={entry.id}>
+                <div>
+                  <strong>{entry.ingredients.slice(0, 3).map((item) => item.name).join(', ')}{entry.ingredients.length > 3 ? ` +${entry.ingredients.length - 3}` : ''}</strong>
+                  <span>{new Date(entry.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · {entry.resultCount} result{entry.resultCount === 1 ? '' : 's'} · {entry.provider}</span>
+                </div>
+                <button type="button" onClick={() => onRestore(entry)}>Use again</button>
+              </article>
+            ))}
+          </div>
+        )}
+
+        {(savedRecipes.length > 0 || history.length > 0) && (
+          <button className="library-clear" type="button" onClick={onClear}>Clear saved and recent</button>
+        )}
+      </article>
+    </div>
+  )
+}
+
+function FeedbackModal({ onClose }) {
+  const [rating, setRating] = useState(5)
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [sent, setSent] = useState(false)
+
+  useEffect(() => {
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    document.body.classList.add('modal-open')
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape)
+      document.body.classList.remove('modal-open')
+    }
+  }, [onClose])
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await submitFeedback({ rating, message: message.trim() })
+      setSent(true)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <article className="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+        <button className="modal-close" type="button" onClick={onClose} aria-label="Close feedback">
+          <Icon name="close" size={19} />
+        </button>
+        {sent ? (
+          <div className="feedback-thanks">
+            <span><Icon name="check" size={27} strokeWidth={2.3} /></span>
+            <h2 id="feedback-title">Thank you.</h2>
+            <p>Your feedback has been received and will help shape the next PLATE review.</p>
+            <button className="primary-button" type="button" onClick={onClose}>Done</button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <p className="eyebrow">Help us improve</p>
+            <h2 id="feedback-title">How was your kitchen flow?</h2>
+            <fieldset className="rating-picker">
+              <legend>Rating</legend>
+              <div>
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <button className={rating === value ? 'selected' : ''} type="button" aria-pressed={rating === value} onClick={() => setRating(value)} key={value}>
+                    {value}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <label className="feedback-message" htmlFor="feedback-message">
+              <span>What should we improve? <small>Optional</small></span>
+              <textarea id="feedback-message" value={message} maxLength={800} rows={5} placeholder="Tell us what worked or where you got stuck…" onChange={(event) => setMessage(event.target.value)} />
+              <small>{message.length}/800 · Please do not include personal or medical information.</small>
+            </label>
+            {error && <div className="form-error" role="alert">{error}</div>}
+            <button className="primary-button" type="submit" disabled={busy}>
+              {busy ? <><span className="spinner" /> Sending…</> : 'Send feedback'}
+            </button>
+          </form>
+        )}
       </article>
     </div>
   )
@@ -297,7 +465,7 @@ function AllergenPicker({ selected, onToggle }) {
   )
 }
 
-function RecipeCard({ recipe, onOpen }) {
+function RecipeCard({ recipe, onOpen, onSave, saved }) {
   const emoji = RECIPE_EMOJI[recipe.accent] || RECIPE_EMOJI.coral
   const missingCount = recipe.missingIngredients?.length || 0
   return (
@@ -306,6 +474,9 @@ function RecipeCard({ recipe, onOpen }) {
         {recipe.imageUrl
           ? <img src={recipe.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
           : <><span>{emoji[0]}</span><span>{emoji[1]}</span><span>{emoji[2]}</span></>}
+        <button className={`save-button ${saved ? 'saved' : ''}`} type="button" aria-label={`${saved ? 'Remove' : 'Save'} ${recipe.title}`} onClick={() => onSave(recipe)}>
+          <Icon name="bookmark" size={17} />
+        </button>
         <div className="match-badge">{recipe.ingredientMatch}% match</div>
       </div>
       <div className="recipe-card-body">
@@ -335,7 +506,7 @@ function RecipeCard({ recipe, onOpen }) {
   )
 }
 
-function RecipeModal({ recipe, onClose, safetyNote }) {
+function RecipeModal({ recipe, onClose, safetyNote, onSave, saved }) {
   useEffect(() => {
     function closeOnEscape(event) {
       if (event.key === 'Escape') onClose()
@@ -358,6 +529,9 @@ function RecipeModal({ recipe, onClose, safetyNote }) {
       <article className="recipe-modal" role="dialog" aria-modal="true" aria-labelledby="recipe-title">
         <button className="modal-close" type="button" onClick={onClose} aria-label="Close recipe">
           <Icon name="close" size={19} />
+        </button>
+        <button className={`modal-save ${saved ? 'saved' : ''}`} type="button" onClick={() => onSave(recipe)}>
+          <Icon name="bookmark" size={16} /> {saved ? 'Saved' : 'Save'}
         </button>
         <div className={`modal-hero ${recipe.accent}`}>
           <div className="modal-emoji">{emoji.join(' ')}</div>
@@ -436,6 +610,10 @@ export default function App() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [showPrivacy, setShowPrivacy] = useState(false)
+  const [showLibrary, setShowLibrary] = useState(false)
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [savedRecipes, setSavedRecipes] = useState(INITIAL_SAVED_RECIPES)
+  const [history, setHistory] = useState(INITIAL_HISTORY)
 
   const reviewRef = useRef(null)
   const resultsRef = useRef(null)
@@ -551,18 +729,20 @@ export default function App() {
     setError('')
     setNotice('')
     try {
-      const result = await generateRecipes({
+      const request = {
         ingredients: validIngredients.map(({ name, quantity }) => ({ name, quantity })),
         allergens,
         avoidIngredients: avoidText.split(',').map((item) => item.trim()).filter(Boolean),
         dietaryPreference,
         maxCookingMinutes: Number(maxCookingMinutes),
         servings: Number(servings),
-      })
+      }
+      const result = await generateRecipes(request)
       setRecipes(result.recipes)
       setSafetyNote(result.safetyNote)
       setProvider(result.provider)
       setNotice(result.notice || '')
+      setHistory((current) => addHistoryEntry(current, request, result))
       requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (requestError) {
       setError(requestError.message)
@@ -570,6 +750,42 @@ export default function App() {
       setBusy('')
       getUsage().then(setUsage).catch(() => {})
     }
+  }
+
+  function toggleSaved(recipe) {
+    setSavedRecipes((current) => toggleSavedRecipe(current, recipe))
+  }
+
+  function restoreHistory(entry) {
+    const restoredIngredients = Array.isArray(entry.ingredients)
+      ? entry.ingredients
+          .filter((item) => item && typeof item.name === 'string' && item.name.trim())
+          .map((item) => ({
+            id: crypto.randomUUID(),
+            name: item.name.slice(0, 100),
+            quantity: typeof item.quantity === 'string' ? item.quantity.slice(0, 80) : 'as needed',
+            confidence: 0,
+            sourceImage: 'Restored from history',
+            kind: 'Ingredient',
+          }))
+      : []
+    if (!restoredIngredients.length) return
+
+    photoUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+    photoUrlsRef.current.clear()
+    setPhotos([])
+    setIngredients(restoredIngredients)
+    setAllergens(Array.isArray(entry.allergens) ? entry.allergens.filter((item) => ALLERGENS.includes(item)) : [])
+    setAvoidText(Array.isArray(entry.avoidIngredients) ? entry.avoidIngredients.join(', ').slice(0, 220) : '')
+    setDietaryPreference(DIETARY_OPTIONS.includes(entry.dietaryPreference) ? entry.dietaryPreference : 'Anything')
+    setMaxCookingMinutes([20, 30, 45, 60, 90].includes(Number(entry.maxCookingMinutes)) ? Number(entry.maxCookingMinutes) : 45)
+    setServings([1, 2, 3, 4, 6].includes(Number(entry.servings)) ? Number(entry.servings) : 2)
+    setRecipes([])
+    setSelectedRecipe(null)
+    setShowLibrary(false)
+    setError('')
+    setNotice('Your previous ingredients and settings are ready to review.')
+    requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
   return (
@@ -581,6 +797,9 @@ export default function App() {
         </a>
         <nav aria-label="Main navigation">
           <a href="#how-it-works">How it works</a>
+          <button className="library-button" type="button" onClick={() => setShowLibrary(true)}>
+            <Icon name="bookmark" size={15} /> Saved {savedRecipes.length > 0 && <span>{savedRecipes.length}</span>}
+          </button>
           <span className={`provider-badge ${provider === 'Azure OpenAI' || provider === 'Edamam' ? 'live' : ''}`}>
             <span /> {provider}
           </span>
@@ -728,7 +947,15 @@ export default function App() {
                 <span className="section-number">03</span>
               </div>
               <div className="recipe-grid">
-                {recipes.map((recipe) => <RecipeCard recipe={recipe} onOpen={setSelectedRecipe} key={recipe.id} />)}
+                {recipes.map((recipe) => (
+                  <RecipeCard
+                    recipe={recipe}
+                    onOpen={setSelectedRecipe}
+                    onSave={toggleSaved}
+                    saved={savedRecipes.some((item) => item.id === recipe.id)}
+                    key={recipe.id}
+                  />
+                ))}
               </div>
               {provider === 'Edamam' && <EdamamAttribution />}
               <div className="safety-note results-safety"><Icon name="shield" size={18} /><p>{safetyNote}</p></div>
@@ -740,11 +967,33 @@ export default function App() {
       <footer>
         <a className="brand muted" href="#top"><span className="brand-mark"><Icon name="leaf" size={19} /></span><span>mise</span></a>
         <p>Waste less. Cook more. Eat beautifully.</p>
+        <button className="footer-link" type="button" onClick={() => setShowLibrary(true)}>Saved & history</button>
+        <button className="footer-link" type="button" onClick={() => setShowFeedback(true)}>Feedback</button>
         <button className="footer-link" type="button" onClick={() => setShowPrivacy(true)}>Privacy & data</button>
         <span>Prototype · 2026</span>
       </footer>
 
-      {selectedRecipe && <RecipeModal recipe={selectedRecipe} safetyNote={safetyNote} onClose={() => setSelectedRecipe(null)} />}
+      {selectedRecipe && <RecipeModal
+        recipe={selectedRecipe}
+        safetyNote={safetyNote || DEFAULT_SAFETY_NOTE}
+        onClose={() => setSelectedRecipe(null)}
+        onSave={toggleSaved}
+        saved={savedRecipes.some((item) => item.id === selectedRecipe.id)}
+      />}
+      {showLibrary && <LibraryModal
+        savedRecipes={savedRecipes}
+        history={history}
+        onClose={() => setShowLibrary(false)}
+        onOpenRecipe={(recipe) => { setShowLibrary(false); setSelectedRecipe(recipe) }}
+        onRemove={(id) => setSavedRecipes((current) => removeSavedRecipe(current, id))}
+        onRestore={restoreHistory}
+        onClear={() => {
+          clearLibrary()
+          setSavedRecipes([])
+          setHistory([])
+        }}
+      />}
+      {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
       {showPrivacy && <PrivacyModal
         onClose={() => setShowPrivacy(false)}
         onClear={() => {

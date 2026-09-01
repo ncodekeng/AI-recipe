@@ -88,3 +88,11 @@ export async function generateRecipes(payload) {
     body: JSON.stringify(payload),
   })
 }
+
+export async function submitFeedback(payload) {
+  return request('/api/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 10_000)
+}
