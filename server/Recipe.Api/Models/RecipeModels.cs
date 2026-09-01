@@ -31,7 +31,11 @@ public sealed record RecipeSuggestion(
     IReadOnlyList<string> Tags,
     IReadOnlyList<RecipeIngredient> Ingredients,
     IReadOnlyList<string> Steps,
-    string Accent);
+    string Accent,
+    IReadOnlyList<string>? MissingIngredients = null,
+    string? SourceName = null,
+    string? SourceUrl = null,
+    string? ImageUrl = null);
 
 public sealed record RecipeGenerationResponse(
     IReadOnlyList<RecipeSuggestion> Recipes,

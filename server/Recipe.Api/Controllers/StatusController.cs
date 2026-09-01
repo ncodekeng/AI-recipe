@@ -7,7 +7,9 @@ namespace Recipe.Api.Controllers;
 
 [ApiController]
 [Route("api/status")]
-public sealed class StatusController(IOptions<FoodAiOptions> options) : ControllerBase
+public sealed class StatusController(
+    IOptions<FoodAiOptions> options,
+    IOptions<RecipeCatalogOptions> catalogOptions) : ControllerBase
 {
     [HttpGet]
     public ActionResult<ServiceStatusResponse> Get()
@@ -18,6 +20,18 @@ public sealed class StatusController(IOptions<FoodAiOptions> options) : Controll
             ? "Azure OpenAI"
             : "Demo";
 
-        return Ok(new ServiceStatusResponse("ok", provider, azureConfigured));
+        var catalog = catalogOptions.Value;
+        var useEdamam = catalog.Provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase);
+        var recipeProviderConfigured = !useEdamam || catalog.Edamam.IsConfigured;
+        var recipeProvider = useEdamam && catalog.Edamam.IsConfigured
+            ? "Edamam"
+            : "Generated";
+
+        return Ok(new ServiceStatusResponse(
+            "ok",
+            provider,
+            azureConfigured,
+            recipeProvider,
+            recipeProviderConfigured));
     }
 }

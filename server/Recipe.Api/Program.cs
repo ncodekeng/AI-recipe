@@ -6,6 +6,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.Configure<FoodAiOptions>(builder.Configuration.GetSection(FoodAiOptions.SectionName));
+builder.Services.Configure<RecipeCatalogOptions>(builder.Configuration.GetSection(RecipeCatalogOptions.SectionName));
 builder.Services.Configure<UsageControlOptions>(builder.Configuration.GetSection(UsageControlOptions.SectionName));
 builder.Services.AddSingleton<DemoFoodAiService>();
 builder.Services.AddSingleton<RecipeSafetyValidator>();
@@ -15,7 +16,13 @@ builder.Services.AddHttpClient<AzureOpenAiClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(75);
 });
+builder.Services.AddHttpClient<EdamamRecipeClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.edamam.com/");
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
 builder.Services.AddScoped<IRecipeAiService, RecipeAiService>();
+builder.Services.AddScoped<IRecipeCatalogService, RecipeCatalogService>();
 
 builder.Services.AddCors(options =>
 {

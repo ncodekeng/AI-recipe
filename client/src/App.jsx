@@ -55,6 +55,8 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
     edit: <><path d="m13.5 3.5 3 3L7 16H4v-3l9.5-9.5Z"/><path d="m11.5 5.5 3 3"/></>,
     image: <><rect x="2" y="3" width="16" height="14" rx="2"/><circle cx="7" cy="8" r="1.5"/><path d="m3 15 4-4 3 3 2-2 5 5"/></>,
     leaf: <><path d="M17.5 2.5C10 3 4.5 6.5 4.5 12c0 3 2.2 5 5 5 5.5 0 8-6 8-14.5Z"/><path d="M3 18c2-5 5.5-8.5 10.5-11.5"/></>,
+    external: <><path d="M11 3h6v6"/><path d="m9 11 8-8"/><path d="M16 12v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h4"/></>,
+    basket: <><path d="M3 8h14l-1 9H4L3 8Z"/><path d="m7 8 3-5 3 5"/><path d="M7 11v3M10 11v3M13 11v3"/></>,
   }
 
   return (
@@ -72,6 +74,20 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
       {paths[name]}
     </svg>
   )
+}
+
+function EdamamAttribution() {
+  useEffect(() => {
+    if (document.querySelector('script[data-edamam-attribution]')) return
+
+    const script = document.createElement('script')
+    script.src = 'https://developer.edamam.com/attribution/badge.js'
+    script.async = true
+    script.dataset.edamamAttribution = 'true'
+    document.head.appendChild(script)
+  }, [])
+
+  return <div className="edamam-attribution" id="edamam-badge" data-color="transparent" />
 }
 
 function Stepper({ currentStep }) {
@@ -239,10 +255,13 @@ function AllergenPicker({ selected, onToggle }) {
 
 function RecipeCard({ recipe, onOpen }) {
   const emoji = RECIPE_EMOJI[recipe.accent] || RECIPE_EMOJI.coral
+  const missingCount = recipe.missingIngredients?.length || 0
   return (
     <article className="recipe-card">
-      <div className={`recipe-art ${recipe.accent}`}>
-        <span>{emoji[0]}</span><span>{emoji[1]}</span><span>{emoji[2]}</span>
+      <div className={`recipe-art ${recipe.accent} ${recipe.imageUrl ? 'has-image' : ''}`}>
+        {recipe.imageUrl
+          ? <img src={recipe.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
+          : <><span>{emoji[0]}</span><span>{emoji[1]}</span><span>{emoji[2]}</span></>}
         <div className="match-badge">{recipe.ingredientMatch}% match</div>
       </div>
       <div className="recipe-card-body">
@@ -252,13 +271,21 @@ function RecipeCard({ recipe, onOpen }) {
         <h3>{recipe.title}</h3>
         <p>{recipe.description}</p>
         <div className="recipe-meta">
-          <span><Icon name="clock" size={16} /> {recipe.cookingMinutes} min</span>
+          <span><Icon name="clock" size={16} /> {recipe.cookingMinutes > 0 ? `${recipe.cookingMinutes} min` : 'See source'}</span>
           <span><Icon name="users" size={17} /> {recipe.servings} servings</span>
           <span>{recipe.difficulty}</span>
         </div>
+        {missingCount > 0 && (
+          <div className="missing-summary"><Icon name="basket" size={15} /> {missingCount} missing ingredient{missingCount === 1 ? '' : 's'}</div>
+        )}
         <button type="button" className="recipe-open" onClick={() => onOpen(recipe)}>
           View recipe <Icon name="arrow" size={17} />
         </button>
+        {recipe.sourceUrl && (
+          <a className="recipe-source" href={recipe.sourceUrl} target="_blank" rel="noreferrer">
+            Recipe from {recipe.sourceName || 'original publisher'} <Icon name="external" size={12} />
+          </a>
+        )}
       </div>
     </article>
   )
@@ -278,6 +305,8 @@ function RecipeModal({ recipe, onClose, safetyNote }) {
   }, [onClose])
 
   const emoji = RECIPE_EMOJI[recipe.accent] || RECIPE_EMOJI.coral
+  const missing = new Set((recipe.missingIngredients || []).map((item) => item.toLowerCase()))
+  const isSourced = Boolean(recipe.sourceUrl)
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose()
@@ -291,7 +320,7 @@ function RecipeModal({ recipe, onClose, safetyNote }) {
           <span>{recipe.cuisine}</span>
           <h2 id="recipe-title">{recipe.title}</h2>
           <div className="modal-meta">
-            <span><Icon name="clock" size={17} /> {recipe.cookingMinutes} min</span>
+            <span><Icon name="clock" size={17} /> {recipe.cookingMinutes > 0 ? `${recipe.cookingMinutes} min` : 'Time on source'}</span>
             <span><Icon name="users" size={18} /> {recipe.servings} servings</span>
             <span>{recipe.difficulty}</span>
           </div>
@@ -303,19 +332,32 @@ function RecipeModal({ recipe, onClose, safetyNote }) {
               <p className="eyebrow">What you'll need</p>
               <ul className="modal-ingredients">
                 {recipe.ingredients.map((item, index) => (
-                  <li key={`${item.name}-${index}`}><span>{item.name}</span><strong>{item.amount}</strong></li>
+                  <li className={missing.has(item.name.toLowerCase()) ? 'missing' : ''} key={`${item.name}-${index}`}>
+                    <span>{item.name}{missing.has(item.name.toLowerCase()) && <small>Missing</small>}</span>
+                    <strong>{item.amount}</strong>
+                  </li>
                 ))}
               </ul>
             </section>
             <section>
               <p className="eyebrow">Method</p>
-              <ol className="method-list">
-                {recipe.steps.map((step, index) => (
-                  <li key={index}><span>{index + 1}</span><p>{step}</p></li>
-                ))}
-              </ol>
+              {isSourced ? (
+                <div className="source-method">
+                  <p>The full method belongs to the original publisher. Open their page for cooking instructions and recipe-specific notes.</p>
+                  <a href={recipe.sourceUrl} target="_blank" rel="noreferrer">
+                    Cook on {recipe.sourceName || 'publisher site'} <Icon name="external" size={16} />
+                  </a>
+                </div>
+              ) : (
+                <ol className="method-list">
+                  {recipe.steps.map((step, index) => (
+                    <li key={index}><span>{index + 1}</span><p>{step}</p></li>
+                  ))}
+                </ol>
+              )}
             </section>
           </div>
+          {isSourced && <p className="modal-source-line">Recipe data from <a href={recipe.sourceUrl} target="_blank" rel="noreferrer">{recipe.sourceName || 'the original publisher'}</a>.</p>}
           <div className="safety-note"><Icon name="shield" size={18} /><p>{safetyNote}</p></div>
         </div>
       </article>
@@ -353,7 +395,7 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController()
     getStatus(controller.signal)
-      .then((status) => setProvider(status.aiProvider))
+      .then((status) => setProvider(status.recipeProvider === 'Edamam' ? 'Edamam' : status.aiProvider))
       .catch(() => setProvider('API offline'))
     getUsage(controller.signal)
       .then(setUsage)
@@ -601,7 +643,7 @@ export default function App() {
               <div className="generate-bar">
                 <div><Icon name="sparkles" size={22} /><p><strong>Everything look right?</strong><span>We will find three suitable ideas.</span></p></div>
                 <button className="primary-button large" type="button" disabled={!validIngredients.length || Boolean(busy)} onClick={handleGenerate}>
-                  {busy === 'generating' ? <><span className="spinner" /> Creating recipes…</> : <>Create my recipes <Icon name="arrow" size={19} /></>}
+                  {busy === 'generating' ? <><span className="spinner" /> Finding recipes…</> : <>Find my recipes <Icon name="arrow" size={19} /></>}
                 </button>
                 {usage && <span className="usage-note">{usage.recipesRemaining} of {usage.recipeLimit} free generations left today</span>}
               </div>
@@ -613,14 +655,15 @@ export default function App() {
               <div className="results-heading">
                 <div>
                   <p className="eyebrow">Made for your kitchen</p>
-                  <h2>Three lovely possibilities</h2>
-                  <p>Built around what you have, your preferences, and the time you want to spend.</p>
+                  <h2>{recipes.length === 1 ? 'One lovely possibility' : `${recipes.length} lovely possibilities`}</h2>
+                  <p>Matched to what you have, your preferences, and the time you want to spend.</p>
                 </div>
                 <span className="section-number">03</span>
               </div>
               <div className="recipe-grid">
                 {recipes.map((recipe) => <RecipeCard recipe={recipe} onOpen={setSelectedRecipe} key={recipe.id} />)}
               </div>
+              {provider === 'Edamam' && <EdamamAttribution />}
               <div className="safety-note results-safety"><Icon name="shield" size={18} /><p>{safetyNote}</p></div>
             </section>
           )}

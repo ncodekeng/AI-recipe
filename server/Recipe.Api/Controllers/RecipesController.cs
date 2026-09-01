@@ -6,7 +6,7 @@ namespace Recipe.Api.Controllers;
 
 [ApiController]
 [Route("api/recipes")]
-public sealed class RecipesController(IRecipeAiService recipeAi, AiUsageGuard usageGuard) : ControllerBase
+public sealed class RecipesController(IRecipeCatalogService recipeCatalog, AiUsageGuard usageGuard) : ControllerBase
 {
     [HttpPost("generate")]
     public async Task<ActionResult<RecipeGenerationResponse>> Generate(
@@ -52,7 +52,7 @@ public sealed class RecipesController(IRecipeAiService recipeAi, AiUsageGuard us
         Response.Headers["X-Plate-Recipes-Remaining"] = admission.Status.RecipesRemaining.ToString();
         try
         {
-            return Ok(await recipeAi.GenerateRecipesAsync(request, cancellationToken));
+            return Ok(await recipeCatalog.FindRecipesAsync(request, cancellationToken));
         }
         catch (RecipeSafetyException exception)
         {
@@ -60,6 +60,15 @@ public sealed class RecipesController(IRecipeAiService recipeAi, AiUsageGuard us
             {
                 Status = StatusCodes.Status422UnprocessableEntity,
                 Title = "No suitable recipes were found.",
+                Detail = exception.Message
+            });
+        }
+        catch (RecipeCatalogException exception)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
+            {
+                Status = StatusCodes.Status503ServiceUnavailable,
+                Title = "Recipe search is unavailable.",
                 Detail = exception.Message
             });
         }

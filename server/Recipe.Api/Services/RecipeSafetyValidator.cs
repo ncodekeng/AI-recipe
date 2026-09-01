@@ -15,7 +15,7 @@ public sealed class RecipeSafetyValidator
         {
             if (string.IsNullOrWhiteSpace(recipe.Title) ||
                 recipe.Ingredients.Count == 0 ||
-                recipe.Steps.Count == 0)
+                (recipe.Steps.Count == 0 && string.IsNullOrWhiteSpace(recipe.SourceUrl)))
             {
                 blockedCount++;
                 continue;
