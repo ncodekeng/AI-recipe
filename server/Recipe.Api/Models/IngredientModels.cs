@@ -7,11 +7,13 @@ public sealed record DetectedIngredient(
     string Name,
     string Quantity,
     int Confidence,
-    string SourceImage);
+    string SourceImage,
+    string Kind = "Ingredient");
 
 public sealed record IngredientAnalysisResponse(
     IReadOnlyList<DetectedIngredient> Ingredients,
     string Provider,
-    string? Notice = null);
+    string? Notice = null,
+    IReadOnlyList<string>? IgnoredPhotos = null);
 
 public sealed record IngredientInput(string Name, string Quantity);

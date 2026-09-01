@@ -29,9 +29,10 @@ public sealed class AzureOpenAiClient(HttpClient httpClient, IOptions<FoodAiOpti
             {
                 type = "text",
                 text = "Identify the edible ingredients in these fridge or pantry photos. Return JSON only as " +
-                       "{\"ingredients\":[{\"name\":\"specific food name\",\"quantity\":\"visual estimate\",\"confidence\":0-100,\"sourceImage\":\"file name\"}]}. " +
+                       "{\"ingredients\":[{\"name\":\"specific food name\",\"quantity\":\"visual estimate\",\"confidence\":0-100,\"sourceImage\":\"file name\",\"kind\":\"Ingredient or Frozen meal\"}],\"ignoredImages\":[\"file name\"]}. " +
                        $"The uploaded file names, in image order, are: {string.Join(", ", photos.Select(photo => photo.FileName))}. " +
-                       "Do not guess hidden foods. Combine obvious duplicates."
+                       "Classify packaged prepared food that appears frozen as Frozen meal. Do not guess hidden foods. " +
+                       "Ignore photos without identifiable food and list those file names in ignoredImages. Combine obvious duplicates."
             }
         };
 
@@ -66,10 +67,16 @@ public sealed class AzureOpenAiClient(HttpClient httpClient, IOptions<FoodAiOpti
                 item.Name.Trim(),
                 string.IsNullOrWhiteSpace(item.Quantity) ? "quantity unknown" : item.Quantity.Trim(),
                 Math.Clamp(item.Confidence, 0, 100),
-                ResolveSourceImage(item.SourceImage, photos, index)))
+                ResolveSourceImage(item.SourceImage, photos, index),
+                string.Equals(item.Kind, "Frozen meal", StringComparison.OrdinalIgnoreCase) ? "Frozen meal" : "Ingredient"))
             .ToList();
 
-        return new IngredientAnalysisResponse(ingredients, "Azure OpenAI");
+        var ignoredPhotos = payload.IgnoredImages
+            .Where(fileName => photos.Any(photo => photo.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new IngredientAnalysisResponse(ingredients, "Azure OpenAI", IgnoredPhotos: ignoredPhotos);
     }
 
     public async Task<RecipeGenerationResponse> GenerateRecipesAsync(
@@ -257,6 +264,7 @@ public sealed class AzureOpenAiClient(HttpClient httpClient, IOptions<FoodAiOpti
     private sealed class IngredientPayload
     {
         public List<IngredientItem> Ingredients { get; init; } = [];
+        public List<string> IgnoredImages { get; init; } = [];
     }
 
     private sealed class IngredientItem
@@ -265,6 +273,7 @@ public sealed class AzureOpenAiClient(HttpClient httpClient, IOptions<FoodAiOpti
         public string Quantity { get; init; } = string.Empty;
         public int Confidence { get; init; }
         public string? SourceImage { get; init; }
+        public string Kind { get; init; } = "Ingredient";
     }
 
     private sealed class RecipePayload

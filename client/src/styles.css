@@ -798,6 +798,20 @@ main {
   font-weight: 500;
 }
 
+.ingredient-kind {
+  grid-column: 1 / -1;
+  width: fit-content;
+  margin: 2px 8px 0;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #e9f0f6;
+  color: #527087;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
 .confidence {
   color: #9a978e;
   font-size: 10px;
@@ -1270,6 +1284,17 @@ footer p {
   margin: 0;
 }
 
+.footer-link {
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: #716e66;
+  cursor: pointer;
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .brand.muted {
   color: #53514b;
   font-size: 19px;
@@ -1303,6 +1328,63 @@ footer p {
   background: white;
   box-shadow: 0 35px 100px rgba(21, 19, 16, 0.32);
   animation: modal-up 260ms ease;
+}
+
+.privacy-modal {
+  position: relative;
+  width: min(590px, 100%);
+  padding: 44px;
+  border-radius: 24px;
+  background: white;
+  box-shadow: 0 35px 100px rgba(21, 19, 16, 0.32);
+  animation: modal-up 260ms ease;
+}
+
+.privacy-modal h2 {
+  margin: 0 0 26px;
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-size: 43px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+
+.privacy-points {
+  display: grid;
+  gap: 15px;
+}
+
+.privacy-points p {
+  margin: 0;
+  padding: 15px;
+  border-radius: 12px;
+  background: #f8f6f1;
+  color: #6d6961;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.privacy-points strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #3f3d38;
+}
+
+.secondary-button {
+  min-height: 42px;
+  margin-top: 24px;
+  padding: 10px 14px;
+  border: 1px solid #ded9d0;
+  border-radius: 10px;
+  background: white;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.secondary-button.danger {
+  border-color: #efcbc6;
+  color: #a6473f;
 }
 
 .modal-close {
@@ -1764,6 +1846,18 @@ footer p {
     width: 100%;
     max-height: 94vh;
     border-radius: 23px 23px 0 0;
+  }
+
+  .privacy-modal {
+    width: 100%;
+    max-height: 94vh;
+    overflow-y: auto;
+    padding: 42px 22px 30px;
+    border-radius: 23px 23px 0 0;
+  }
+
+  .privacy-modal h2 {
+    font-size: 38px;
   }
 
   .modal-hero {

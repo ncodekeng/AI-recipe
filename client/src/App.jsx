@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { analyzePhotos, generateRecipes, getStatus, getUsage } from './api.js'
+import { clearLocalData, loadPreferences, savePreferences } from './storage.js'
 
 const ALLERGENS = [
   'Peanuts',
@@ -31,6 +32,14 @@ const DIETARY_OPTIONS = [
 
 const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const DEFAULT_PREFERENCES = {
+  allergens: [],
+  dietaryPreference: 'Anything',
+  avoidText: '',
+  maxCookingMinutes: 45,
+  servings: 2,
+}
+const INITIAL_PREFERENCES = { ...DEFAULT_PREFERENCES, ...loadPreferences() }
 
 const RECIPE_EMOJI = {
   coral: ['🍅', '🌿', '🍳'],
@@ -88,6 +97,40 @@ function EdamamAttribution() {
   }, [])
 
   return <div className="edamam-attribution" id="edamam-badge" data-color="transparent" />
+}
+
+function PrivacyModal({ onClose, onClear }) {
+  useEffect(() => {
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    document.body.classList.add('modal-open')
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape)
+      document.body.classList.remove('modal-open')
+    }
+  }, [onClose])
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <article className="privacy-modal" role="dialog" aria-modal="true" aria-labelledby="privacy-title">
+        <button className="modal-close" type="button" onClick={onClose} aria-label="Close privacy information">
+          <Icon name="close" size={19} />
+        </button>
+        <p className="eyebrow"><Icon name="shield" size={17} /> Prototype data handling</p>
+        <h2 id="privacy-title">Your kitchen stays yours.</h2>
+        <div className="privacy-points">
+          <p><strong>Photos are temporary.</strong> They are sent to the API for recognition, held in memory while the request runs, and not saved by this app.</p>
+          <p><strong>Cloud processing can apply.</strong> In live mode, photos are processed by the configured Azure OpenAI resource. Recipe searches can send ingredient names and selected restrictions to Edamam.</p>
+          <p><strong>Only preferences stay here.</strong> This browser stores an anonymous usage ID plus your diet, allergen, time, serving, and avoidance settings. No recipe results are cached.</p>
+        </div>
+        <button className="secondary-button danger" type="button" onClick={onClear}>Clear this browser's data</button>
+      </article>
+    </div>
+  )
 }
 
 function Stepper({ currentStep }) {
@@ -216,6 +259,7 @@ function IngredientEditor({ ingredients, onChange, onRemove, onAdd }) {
                   onChange={(event) => onChange(ingredient.id, 'quantity', event.target.value)}
                 />
               </label>
+              {ingredient.kind === 'Frozen meal' && <span className="ingredient-kind">Frozen meal</span>}
             </div>
             {ingredient.confidence > 0 && <span className="confidence">{ingredient.confidence}% sure</span>}
             <button className="icon-button" type="button" onClick={() => onRemove(ingredient.id)} aria-label={`Remove ${ingredient.name}`}>
@@ -368,11 +412,21 @@ function RecipeModal({ recipe, onClose, safetyNote }) {
 export default function App() {
   const [photos, setPhotos] = useState([])
   const [ingredients, setIngredients] = useState([])
-  const [allergens, setAllergens] = useState([])
-  const [dietaryPreference, setDietaryPreference] = useState('Anything')
-  const [avoidText, setAvoidText] = useState('')
-  const [maxCookingMinutes, setMaxCookingMinutes] = useState(45)
-  const [servings, setServings] = useState(2)
+  const [allergens, setAllergens] = useState(() => Array.isArray(INITIAL_PREFERENCES.allergens)
+    ? INITIAL_PREFERENCES.allergens.filter((item) => ALLERGENS.includes(item))
+    : [])
+  const [dietaryPreference, setDietaryPreference] = useState(() => DIETARY_OPTIONS.includes(INITIAL_PREFERENCES.dietaryPreference)
+    ? INITIAL_PREFERENCES.dietaryPreference
+    : DEFAULT_PREFERENCES.dietaryPreference)
+  const [avoidText, setAvoidText] = useState(() => typeof INITIAL_PREFERENCES.avoidText === 'string'
+    ? INITIAL_PREFERENCES.avoidText.slice(0, 220)
+    : '')
+  const [maxCookingMinutes, setMaxCookingMinutes] = useState(() => [20, 30, 45, 60, 90].includes(Number(INITIAL_PREFERENCES.maxCookingMinutes))
+    ? Number(INITIAL_PREFERENCES.maxCookingMinutes)
+    : DEFAULT_PREFERENCES.maxCookingMinutes)
+  const [servings, setServings] = useState(() => [1, 2, 3, 4, 6].includes(Number(INITIAL_PREFERENCES.servings))
+    ? Number(INITIAL_PREFERENCES.servings)
+    : DEFAULT_PREFERENCES.servings)
   const [recipes, setRecipes] = useState([])
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [safetyNote, setSafetyNote] = useState('')
@@ -381,6 +435,7 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
+  const [showPrivacy, setShowPrivacy] = useState(false)
 
   const reviewRef = useRef(null)
   const resultsRef = useRef(null)
@@ -406,6 +461,10 @@ export default function App() {
   useEffect(() => () => {
     photoUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
   }, [])
+
+  useEffect(() => {
+    savePreferences({ allergens, dietaryPreference, avoidText, maxCookingMinutes, servings })
+  }, [allergens, dietaryPreference, avoidText, maxCookingMinutes, servings])
 
   function addPhotos(files) {
     setError('')
@@ -446,9 +505,17 @@ export default function App() {
     setNotice('')
     try {
       const result = await analyzePhotos(photos.map((photo) => photo.file))
+      if (!result.ingredients.length) {
+        setIngredients([])
+        setError('No clear food items were found. Try a brighter, closer photo of the shelves or worktop.')
+        return
+      }
       setIngredients(result.ingredients)
       setProvider(result.provider)
-      setNotice(result.notice || '')
+      const ignoredNotice = result.ignoredPhotos?.length
+        ? `${result.ignoredPhotos.length} photo${result.ignoredPhotos.length === 1 ? ' was' : 's were'} ignored because no clear food was found.`
+        : ''
+      setNotice([result.notice, ignoredNotice].filter(Boolean).join(' '))
       setRecipes([])
       requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (requestError) {
@@ -514,7 +581,7 @@ export default function App() {
         </a>
         <nav aria-label="Main navigation">
           <a href="#how-it-works">How it works</a>
-          <span className={`provider-badge ${provider === 'Azure OpenAI' ? 'live' : ''}`}>
+          <span className={`provider-badge ${provider === 'Azure OpenAI' || provider === 'Edamam' ? 'live' : ''}`}>
             <span /> {provider}
           </span>
         </nav>
@@ -673,10 +740,18 @@ export default function App() {
       <footer>
         <a className="brand muted" href="#top"><span className="brand-mark"><Icon name="leaf" size={19} /></span><span>mise</span></a>
         <p>Waste less. Cook more. Eat beautifully.</p>
+        <button className="footer-link" type="button" onClick={() => setShowPrivacy(true)}>Privacy & data</button>
         <span>Prototype · 2026</span>
       </footer>
 
       {selectedRecipe && <RecipeModal recipe={selectedRecipe} safetyNote={safetyNote} onClose={() => setSelectedRecipe(null)} />}
+      {showPrivacy && <PrivacyModal
+        onClose={() => setShowPrivacy(false)}
+        onClear={() => {
+          clearLocalData()
+          window.location.reload()
+        }}
+      />}
     </>
   )
 }
