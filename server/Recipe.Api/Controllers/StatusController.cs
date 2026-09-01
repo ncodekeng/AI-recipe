@@ -23,9 +23,7 @@ public sealed class StatusController(
         var catalog = catalogOptions.Value;
         var useEdamam = catalog.Provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase);
         var recipeProviderConfigured = !useEdamam || catalog.Edamam.IsConfigured;
-        var recipeProvider = useEdamam && catalog.Edamam.IsConfigured
-            ? "Edamam"
-            : "Generated";
+        var recipeProvider = useEdamam ? "Edamam" : "Generated";
 
         return Ok(new ServiceStatusResponse(
             "ok",

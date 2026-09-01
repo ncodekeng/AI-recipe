@@ -628,7 +628,9 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController()
     getStatus(controller.signal)
-      .then((status) => setProvider(status.recipeProvider === 'Edamam' ? 'Edamam' : status.aiProvider))
+      .then((status) => setProvider(status.recipeProvider === 'Edamam'
+        ? status.recipeProviderConfigured ? 'Edamam' : 'Recipe API setup needed'
+        : status.aiProvider))
       .catch(() => setProvider('API offline'))
     getUsage(controller.signal)
       .then(setUsage)

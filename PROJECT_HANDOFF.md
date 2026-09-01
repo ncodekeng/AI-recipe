@@ -18,19 +18,21 @@ Never store Base44, Azure, Apple, Google, recipe-provider, or delivery-provider 
 
 - Workspace: `D:\Projects\AI-recipe`
 - Current implementation: React/Vite client plus ASP.NET Core .NET 10 API.
-- Main implementation commit: `6f2e3ae Build AI recipe prototype`
-- The implementation supports credential-free demo mode and configurable Azure OpenAI mode.
+- The implementation supports credential-free demo mode, configurable Azure OpenAI vision/generation, and optional Edamam real-recipe search.
 - Sample food images are under `sample-images/`.
 - A smoke test is available at `scripts/smoke-test.ps1`.
+- The React build is served by ASP.NET in the production image on port 8080. No Azure deployment has been completed.
+- Dapr is intentionally disabled because the application remains a single service.
+- No Azure, Edamam, Base44, Apple, Google, or delivery-provider credentials exist in the repository.
 
-There is unfinished, uncommitted production-container work. Preserve and review these changes:
+Implementation milestones:
 
-- Modified: `README.md`
-- Modified: `server/Recipe.Api/Program.cs`
-- Untracked: `.dockerignore`
-- Untracked: `Dockerfile`
-
-The changes build the React app, publish the .NET API, serve the SPA from ASP.NET on port 8080, and prepare one container for Azure Container Apps. No Azure deployment was completed. Dapr was intentionally not enabled because the prototype is currently one service and does not need service-to-service messaging.
+- `6f2e3ae Build AI recipe prototype`
+- `c110092 Package production container`
+- `2729277 Harden AI request safety`
+- `76657bb Add sourced recipe provider`
+- `b5fee6c Improve guest kitchen flow`
+- `d9d93ba Add recipe library feedback`
 
 Before resuming:
 
@@ -39,7 +41,7 @@ git status --short
 git diff
 ```
 
-Do not reset, overwrite, or commit these changes without reviewing them.
+Always inspect and preserve any new working-tree changes before continuing.
 
 ## Existing local application
 
@@ -49,17 +51,24 @@ The Mise prototype already includes:
 - Ingredient detection with confidence and estimated quantities
 - Manual ingredient edit, add, and removal
 - Allergies, dietary preferences, maximum time, and servings
-- Three recipe suggestions and recipe details
-- Demo allergen filtering
+- Generated or real sourced recipe suggestions and recipe details
+- Missing ingredient highlighting and publisher attribution
+- Deterministic server-side allergen/diet validation after every provider response
 - Azure OpenAI boundary with demo fallback
+- Per-browser quotas, concurrency control, an estimated global daily budget, and kill switch
+- Locally persisted preferences, recipe saves/bookmarks, and input-only history
+- Privacy/data controls, feedback submission, timeouts, retry/empty/error states
+- Irrelevant-photo reporting and experimental frozen-meal classification in Azure mode
 - Mobile-first React UI
 - Reusable ASP.NET API for future web/native clients
 
 Important endpoints:
 
 - `GET /api/status`
+- `GET /api/usage`
 - `POST /api/ingredients/analyze`
 - `POST /api/recipes/generate`
+- `POST /api/feedback`
 
 Local development:
 
@@ -174,25 +183,15 @@ The user must never go directly from uncertain image recognition to recipes with
 
 ### P0 launch scope
 
-- Mobile-friendly web application
-- One or more ingredient photos
-- Photo preview, remove, replace, and validation
-- Ingredient recognition
-- Low-confidence/uncertain ingredient state
-- Edit, add, remove, and confirm ingredients
-- Manual fallback when recognition fails
-- Quantity/weight/volume correction by the user
-- Allergies and dietary preferences
-- Servings and maximum cooking time
-- Structured recipe results
-- Clear owned versus missing ingredients
-- Full quantities and numbered cooking instructions
-- Save and basic history
-- Loading, timeout, retry, empty, and failure states
-- Feedback mechanism
-- Guest first-value experience, followed by account creation for persistence
-- Usage limits, monitoring, cost cutoff, and AI kill switch
-- Photo privacy and retention policy
+- Done locally: mobile-friendly web UI; multiple photos; previews/removal/type and size validation.
+- Done locally: credential-free demo and Azure multimodal recognition with confidence, quantity, manual edit/add/remove, empty-result guidance, ignored-photo reporting, and experimental frozen-meal classification.
+- Done locally: structured allergens, custom avoid list, diet, servings, and maximum time.
+- Done locally: real-recipe provider boundary, generated fallback boundary, deterministic safety validation, missing ingredient UI, source links, and required Edamam attribution.
+- Done locally: saved generated recipes, sourced bookmarks, input-only recent history, feedback API/UI, timeouts and failure states.
+- Done locally for a single instance: daily limits, one active request, estimated budget cutoff, kill switch, and usage display.
+- Done locally: clear prototype data-handling copy and browser-data deletion.
+- Still required for public MVP: Base44/auth decision, cross-device account persistence, shared durable quota/idempotency store, bot/gateway controls, actual cost telemetry, durable feedback/log sink, staging provider verification, and reviewed privacy/legal copy.
+- Still provider-dependent: in-app full instructions for licensed content. Edamam web recipes link to the publisher for the method.
 
 ### P1 candidates
 
@@ -280,6 +279,16 @@ Azure budget alerts are notifications, not a guaranteed hard spending ceiling, s
 
 The latest backlog says recipes should be real recipes found online, not generated by AI, with a small source link under each recipe.
 
+The local implementation now has an optional **Edamam Recipe Search** provider boundary:
+
+- Set `RecipeCatalog__Provider=Edamam` with client-owned app ID/key.
+- Web results show ingredients, missing-item matching, source name/link, imagery when licensed by the active plan, and Edamam's official attribution badge.
+- Full third-party cooking instructions are not copied; the user opens the original publisher.
+- Sourced saves are lightweight bookmarks rather than cached recipe bodies.
+- Edamam mode fails visibly when unconfigured/unavailable and does not silently generate recipes unless `UseGeneratedFallback` is explicitly enabled.
+
+This is an implementation choice, not completed commercial approval. The client still needs to select/pay for the plan and confirm commercial, caching, image, and attribution rights. Staging tests with real credentials are outstanding.
+
 This is not automatically an Easy feature. Do not scrape and republish arbitrary recipe text or photography. Use one of:
 
 - A licensed recipe API
@@ -287,7 +296,7 @@ This is not automatically an Easy feature. Do not scrape and republish arbitrary
 - Content explicitly licensed for commercial reuse
 - A source-link/search experience that does not reproduce protected content
 
-Before implementation, decide:
+Before public launch, confirm:
 
 - Recipe provider and commercial licence
 - Whether full instructions may be stored/displayed
@@ -376,10 +385,12 @@ Do not copy its entire feature surface for V1. PLATE can differentiate through c
 4. Run the entire PLATE flow and reproduce the scan that never returned results.
 5. Compare Base44 implementation with the local React/.NET prototype.
 6. Choose the final V1 architecture.
-7. Lock measurable acceptance criteria and commercial scope before estimating.
-8. Select a licensed recipe provider.
-9. Implement the core vertical slice before peripheral features.
-10. Add safety, cost, privacy, and monitoring controls before public launch.
+7. Lock measurable acceptance criteria, launch market, supported dietary taxonomy, and commercial scope.
+8. Obtain staging Azure OpenAI and licensed Edamam (or replacement provider) credentials; verify real responses, cost, latency, rights, and attribution.
+9. Move anonymous in-memory quotas/idempotency to a shared durable store and add account/gateway bot enforcement before opening public AI endpoints.
+10. Decide whether Base44 owns auth/data/PWA UI while ASP.NET owns AI/safety/provider logic; migrate the proven local vertical slice accordingly.
+11. Configure durable logs/Application Insights, alerts, secrets, health probes, custom domain, and CI/CD.
+12. Complete security, privacy, allergen, halal/kosher wording, and recipe-rights review before public launch.
 
 ## Development and Git preferences
 
@@ -396,4 +407,3 @@ Do not copy its entire feature surface for V1. PLATE can differentiate through c
 Use this prompt:
 
 > Open `PROJECT_HANDOFF.md` and `README.md` in `D:\Projects\AI-recipe`, inspect `git status` and the current Base44 access situation, preserve all existing changes, then continue from the Immediate next actions. Ask only for information that cannot be discovered safely from the workspace or Base44 project.
-

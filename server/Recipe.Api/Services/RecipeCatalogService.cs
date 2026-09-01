@@ -22,6 +22,12 @@ public sealed class RecipeCatalogService(
             return await generatedRecipes.GenerateRecipesAsync(request, cancellationToken);
         }
 
+        if (!_options.Edamam.IsConfigured)
+        {
+            throw new RecipeCatalogException(
+                "Real recipe search is selected but its credentials are not configured.");
+        }
+
         try
         {
             var response = await edamam.FindRecipesAsync(request, cancellationToken);
@@ -51,8 +57,7 @@ public sealed class RecipeCatalogService(
     }
 
     private bool UseEdamam() =>
-        _options.Provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase) &&
-        _options.Edamam.IsConfigured;
+        _options.Provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class RecipeCatalogException(string message, Exception? innerException = null)
