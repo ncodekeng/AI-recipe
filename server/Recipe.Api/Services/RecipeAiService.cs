@@ -7,6 +7,7 @@ namespace Recipe.Api.Services;
 public sealed class RecipeAiService(
     AzureOpenAiClient azure,
     DemoFoodAiService demo,
+    RecipeSafetyValidator safetyValidator,
     IOptions<FoodAiOptions> options,
     ILogger<RecipeAiService> logger) : IRecipeAiService
 {
@@ -40,24 +41,28 @@ public sealed class RecipeAiService(
         GenerateRecipesRequest request,
         CancellationToken cancellationToken)
     {
+        RecipeGenerationResponse response;
         if (!UseAzure())
         {
-            return demo.GenerateRecipes(request);
+            response = demo.GenerateRecipes(request);
+            return safetyValidator.Validate(response, request);
         }
 
         try
         {
-            return await azure.GenerateRecipesAsync(request, cancellationToken);
+            response = await azure.GenerateRecipesAsync(request, cancellationToken);
         }
         catch (Exception exception) when (_options.UseDemoFallback && exception is not OperationCanceledException)
         {
             logger.LogWarning(exception, "Azure recipe generation failed; using the demo provider.");
             var fallback = demo.GenerateRecipes(request);
-            return fallback with
+            response = fallback with
             {
                 Notice = "Azure could not be reached, so the prototype switched to locally generated demo recipes."
             };
         }
+
+        return safetyValidator.Validate(response, request);
     }
 
     private bool UseAzure() =>

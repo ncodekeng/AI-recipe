@@ -6,10 +6,10 @@ namespace Recipe.Api.Controllers;
 
 [ApiController]
 [Route("api/ingredients")]
-public sealed class IngredientsController(IRecipeAiService recipeAi) : ControllerBase
+public sealed class IngredientsController(IRecipeAiService recipeAi, AiUsageGuard usageGuard) : ControllerBase
 {
     private const int MaxPhotoCount = 6;
-    private const long MaxPhotoBytes = 8 * 1024 * 1024;
+    private const long MaxPhotoBytes = 5 * 1024 * 1024;
 
     [HttpPost("analyze")]
     [Consumes("multipart/form-data")]
@@ -35,7 +35,7 @@ public sealed class IngredientsController(IRecipeAiService recipeAi) : Controlle
             return BadRequest(new ProblemDetails
             {
                 Title = "One or more photos are not supported.",
-                Detail = "Use image files no larger than 8 MB each."
+                Detail = "Use JPEG, PNG, GIF, or WebP files no larger than 5 MB each."
             });
         }
 
@@ -44,11 +44,37 @@ public sealed class IngredientsController(IRecipeAiService recipeAi) : Controlle
         {
             await using var stream = new MemoryStream();
             await photo.CopyToAsync(stream, cancellationToken);
+            var content = stream.ToArray();
+            if (!ImageFileValidator.TryDetectContentType(content, out var detectedContentType))
+            {
+                return BadRequest(new ProblemDetails
+                {
+                    Title = "A photo's contents do not match a supported image format.",
+                    Detail = "Use an original JPEG, PNG, GIF, or WebP image."
+                });
+            }
+
             uploadedPhotos.Add(new UploadedPhoto(
                 Path.GetFileName(photo.FileName),
-                photo.ContentType,
-                stream.ToArray()));
+                detectedContentType,
+                content));
         }
+
+        var admission = usageGuard.TryAcquire(
+            ClientIdentity.Resolve(HttpContext),
+            AiOperation.IngredientScan);
+        if (!admission.Allowed)
+        {
+            return StatusCode(admission.Rejection!.StatusCode, new ProblemDetails
+            {
+                Status = admission.Rejection.StatusCode,
+                Title = admission.Rejection.Title,
+                Detail = admission.Rejection.Detail
+            });
+        }
+
+        using var usageLease = admission.Lease!;
+        Response.Headers["X-Plate-Scans-Remaining"] = admission.Status.ScansRemaining.ToString();
 
         return Ok(await recipeAi.AnalyzeIngredientsAsync(uploadedPhotos, cancellationToken));
     }

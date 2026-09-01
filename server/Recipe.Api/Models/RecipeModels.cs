@@ -7,6 +7,7 @@ public sealed class GenerateRecipesRequest
     [MinLength(1)]
     public List<IngredientInput> Ingredients { get; init; } = [];
     public List<string> Allergens { get; init; } = [];
+    public List<string> AvoidIngredients { get; init; } = [];
     public string DietaryPreference { get; init; } = "Anything";
 
     [Range(10, 180)]

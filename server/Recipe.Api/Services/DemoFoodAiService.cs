@@ -74,7 +74,11 @@ public sealed class DemoFoodAiService
 
         var usable = request.Ingredients
             .Where(item => !string.IsNullOrWhiteSpace(item.Name))
-            .Where(item => !FoodSafetyRules.IsExcluded(item.Name, allergens, request.DietaryPreference))
+            .Where(item => FoodSafetyRules.FindConflicts(
+                [item.Name],
+                allergens,
+                request.DietaryPreference,
+                request.AvoidIngredients).Count == 0)
             .GroupBy(item => item.Name.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First() with
             {

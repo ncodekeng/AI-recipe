@@ -1,19 +1,36 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { analyzePhotos, generateRecipes, getStatus } from './api.js'
+import { analyzePhotos, generateRecipes, getStatus, getUsage } from './api.js'
 
 const ALLERGENS = [
   'Peanuts',
   'Tree nuts',
   'Milk',
   'Eggs',
-  'Wheat',
+  'Gluten cereals',
   'Soy',
   'Fish',
-  'Shellfish',
+  'Crustaceans',
+  'Molluscs',
   'Sesame',
+  'Celery',
+  'Mustard',
+  'Lupin',
+  'Sulphites',
 ]
 
-const DIETARY_OPTIONS = ['Anything', 'Vegetarian', 'Vegan', 'Pescatarian', 'Gluten-free']
+const DIETARY_OPTIONS = [
+  'Anything',
+  'Vegetarian',
+  'Vegan',
+  'Pescatarian',
+  'Gluten-free',
+  'Dairy-free',
+  'Halal-style',
+  'Kosher-style',
+]
+
+const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 const RECIPE_EMOJI = {
   coral: ['🍅', '🌿', '🍳'],
@@ -311,12 +328,14 @@ export default function App() {
   const [ingredients, setIngredients] = useState([])
   const [allergens, setAllergens] = useState([])
   const [dietaryPreference, setDietaryPreference] = useState('Anything')
+  const [avoidText, setAvoidText] = useState('')
   const [maxCookingMinutes, setMaxCookingMinutes] = useState(45)
   const [servings, setServings] = useState(2)
   const [recipes, setRecipes] = useState([])
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [safetyNote, setSafetyNote] = useState('')
   const [provider, setProvider] = useState('Checking…')
+  const [usage, setUsage] = useState(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -336,6 +355,9 @@ export default function App() {
     getStatus(controller.signal)
       .then((status) => setProvider(status.aiProvider))
       .catch(() => setProvider('API offline'))
+    getUsage(controller.signal)
+      .then(setUsage)
+      .catch(() => {})
     return () => controller.abort()
   }, [])
 
@@ -345,9 +367,13 @@ export default function App() {
 
   function addPhotos(files) {
     setError('')
+    const supported = files.filter((file) => SUPPORTED_IMAGE_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES)
+    if (supported.length !== files.length) {
+      setError('Use JPEG, PNG, GIF, or WebP photos no larger than 5 MB each.')
+    }
     const remaining = 6 - photos.length
-    const accepted = files.slice(0, remaining)
-    if (files.length > remaining) setError('You can add up to 6 photos at a time.')
+    const accepted = supported.slice(0, remaining)
+    if (supported.length > remaining) setError('You can add up to 6 photos at a time.')
     const additions = accepted.map((file) => {
       const url = URL.createObjectURL(file)
       photoUrlsRef.current.add(url)
@@ -387,6 +413,7 @@ export default function App() {
       setError(requestError.message)
     } finally {
       setBusy('')
+      getUsage().then(setUsage).catch(() => {})
     }
   }
 
@@ -418,6 +445,7 @@ export default function App() {
       const result = await generateRecipes({
         ingredients: validIngredients.map(({ name, quantity }) => ({ name, quantity })),
         allergens,
+        avoidIngredients: avoidText.split(',').map((item) => item.trim()).filter(Boolean),
         dietaryPreference,
         maxCookingMinutes: Number(maxCookingMinutes),
         servings: Number(servings),
@@ -431,6 +459,7 @@ export default function App() {
       setError(requestError.message)
     } finally {
       setBusy('')
+      getUsage().then(setUsage).catch(() => {})
     }
   }
 
@@ -553,15 +582,28 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                    <div className="field-group">
+                      <label htmlFor="avoid">Other ingredients to avoid</label>
+                      <input
+                        id="avoid"
+                        className="text-input"
+                        value={avoidText}
+                        placeholder="e.g. coriander, mushrooms"
+                        maxLength={220}
+                        onChange={(event) => { setAvoidText(event.target.value); setRecipes([]) }}
+                      />
+                      <p className="field-help">Separate multiple ingredients with commas.</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="generate-bar">
-                <div><Icon name="sparkles" size={22} /><p><strong>Everything look right?</strong><span>We’ll dream up three delicious ideas.</span></p></div>
+                <div><Icon name="sparkles" size={22} /><p><strong>Everything look right?</strong><span>We will find three suitable ideas.</span></p></div>
                 <button className="primary-button large" type="button" disabled={!validIngredients.length || Boolean(busy)} onClick={handleGenerate}>
                   {busy === 'generating' ? <><span className="spinner" /> Creating recipes…</> : <>Create my recipes <Icon name="arrow" size={19} /></>}
                 </button>
+                {usage && <span className="usage-note">{usage.recipesRemaining} of {usage.recipeLimit} free generations left today</span>}
               </div>
             </section>
           )}
