@@ -38,6 +38,18 @@ React mobile web client
 
 The API owns validation and provider orchestration, allowing a future Base44, iOS, or Android client to reuse the same business rules. This is one web app and API, so it has no Dapr dependency or sidecar.
 
+## Codex workflow skills
+
+Shared project instructions live under `.agents/skills`, the repository-scoped location Codex discovers automatically. They preserve the important workflow rules when another developer or Codex account opens this repository:
+
+- `$plate-scan-kitchen` — photo upload, validation, and Azure ingredient recognition
+- `$plate-review-pantry` — ingredient corrections, preferences, and safety inputs
+- `$plate-find-sourced-recipes` — real online recipes, matching, imagery, ranking, and licensed caching
+- `$plate-grocery-handoff` — missing-only shopping lists and delivery-provider boundaries
+- `$plate-release-azure` — testing, packaging, Azure configuration, and release handoff
+
+Codex may select a matching skill automatically, or it can be invoked explicitly by name. Restart Codex if a newly added skill does not appear immediately.
+
 ## Run locally
 
 Prerequisites: .NET SDK 10+, Node.js 20+, and npm.
