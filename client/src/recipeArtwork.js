@@ -2,6 +2,7 @@ const INGREDIENT_VISUALS = [
   { key: 'chicken', icon: '🍗', aliases: ['chicken', 'chicken breast', 'chicken thigh'] },
   { key: 'beef', icon: '🥩', aliases: ['beef', 'steak', 'minced beef', 'ground beef'] },
   { key: 'pork', icon: '🥓', aliases: ['pork', 'bacon', 'ham', 'prosciutto'] },
+  { key: 'lamb', icon: '🍖', aliases: ['lamb', 'lamb shank', 'lamb shanks', 'lamb chop', 'lamb chops'] },
   { key: 'salmon', icon: '🐟', aliases: ['salmon', 'salmon fillet'] },
   { key: 'fish', icon: '🐟', aliases: ['fish', 'cod', 'tuna', 'haddock', 'tilapia'] },
   { key: 'shrimp', icon: '🦐', aliases: ['shrimp', 'shrimps', 'prawn', 'prawns'] },

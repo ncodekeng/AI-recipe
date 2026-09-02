@@ -89,6 +89,14 @@ export async function generateRecipes(payload) {
   })
 }
 
+export async function createDeliverooBasket(payload) {
+  return request('/api/grocery/deliveroo/basket', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 20_000)
+}
+
 export async function submitFeedback(payload) {
   return request('/api/feedback', {
     method: 'POST',

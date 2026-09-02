@@ -22,7 +22,9 @@ public sealed class RecipeSafetyValidator
             }
 
             var conflicts = FoodSafetyRules.FindConflicts(
-                recipe.Ingredients.Select(item => item.Name).Concat(recipe.Steps),
+                recipe.Ingredients
+                    .SelectMany(item => new[] { item.Name, item.OriginalText ?? string.Empty })
+                    .Concat(recipe.Steps),
                 request.Allergens,
                 request.DietaryPreference,
                 request.AvoidIngredients);

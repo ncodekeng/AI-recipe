@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { analyzePhotos, generateRecipes, getStatus, getUsage, submitFeedback } from './api.js'
+import { analyzePhotos, createDeliverooBasket, generateRecipes, getStatus, getUsage, submitFeedback } from './api.js'
 import { clearLocalData, loadPreferences, savePreferences } from './storage.js'
 import RecipeHeroImage from './RecipeHeroImage.jsx'
-import { getRecipeArtwork } from './recipeArtwork.js'
+import {
+  buildGroceryBasketPayload,
+  canPrepareGroceryBasket,
+  formatShoppingList,
+  getMissingIngredients,
+} from './groceryBasket.js'
 import {
   addHistoryEntry,
   clearLibrary,
@@ -48,6 +53,7 @@ const DEFAULT_PREFERENCES = {
   avoidText: '',
   maxCookingMinutes: 45,
   servings: 2,
+  showRecipePhotos: true,
 }
 const INITIAL_PREFERENCES = { ...DEFAULT_PREFERENCES, ...loadPreferences() }
 const INITIAL_SAVED_RECIPES = loadSavedRecipes()
@@ -461,17 +467,91 @@ function AllergenPicker({ selected, onToggle }) {
   )
 }
 
-function RecipeCard({ recipe, onOpen, onSave, saved }) {
-  const missingCount = recipe.missingIngredients?.length || 0
+function IngredientPreview({ label, ingredients, prefix, emptyText }) {
   return (
-    <article className="recipe-card">
-      <RecipeHeroImage recipe={recipe}>
+    <div className="match-list">
+      <strong>{label}</strong>
+      {ingredients.length > 0 ? (
+        <ul>
+          {ingredients.slice(0, 4).map((item, index) => (
+            <li key={`${item.name}-${index}`}><span>{prefix}</span>{item.name}</li>
+          ))}
+          {ingredients.length > 4 && <li className="more-items">+ {ingredients.length - 4} more</li>}
+        </ul>
+      ) : <p>{emptyText}</p>}
+    </div>
+  )
+}
+
+function GroceryAction({ recipe, compact = false }) {
+  const missingIngredients = getMissingIngredients(recipe)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState('')
+
+  if (!canPrepareGroceryBasket(recipe)) {
+    return <p className="everything-ready"><Icon name="check" size={15} /> You have everything you need.</p>
+  }
+
+  async function prepareBasket() {
+    setBusy(true)
+    setError('')
+    setResult(null)
+    try {
+      const response = await createDeliverooBasket(buildGroceryBasketPayload(recipe))
+      if (response.basketCreated && response.checkoutUrl) {
+        window.location.assign(response.checkoutUrl)
+        return
+      }
+
+      let copied = false
+      try {
+        await navigator.clipboard.writeText(formatShoppingList(response.ingredients || missingIngredients))
+        copied = true
+      } catch {
+        // Clipboard access is optional; the user can still open Deliveroo and view the list here.
+      }
+      setResult({ ...response, copied })
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className={`grocery-action ${compact ? 'compact' : ''}`}>
+      <button type="button" disabled={busy} onClick={prepareBasket}>
+        <Icon name="basket" size={16} />
+        {busy
+          ? 'Preparing list…'
+          : `Get ${missingIngredients.length} missing ingredient${missingIngredients.length === 1 ? '' : 's'}`}
+      </button>
+      {result && (
+        <div className="grocery-handoff" role="status">
+          <p>{result.copied ? 'Shopping list copied. ' : ''}{result.message}</p>
+          <ul>{missingIngredients.map((item, index) => <li key={`${item.name}-${index}`}>{item.amount} {item.name}</li>)}</ul>
+          {result.handoffUrl && <a href={result.handoffUrl} target="_blank" rel="noreferrer">Open Deliveroo <Icon name="external" size={13} /></a>}
+        </div>
+      )}
+      {error && <p className="grocery-error" role="alert">{error}</p>}
+    </div>
+  )
+}
+
+function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick }) {
+  const availableIngredients = Array.isArray(recipe.availableIngredients) ? recipe.availableIngredients : []
+  const missingIngredients = getMissingIngredients(recipe)
+  return (
+    <article className={`recipe-card ${isTopPick ? 'top-pick-card' : ''}`}>
+      <RecipeHeroImage recipe={recipe} showRecipePhotos={showRecipePhotos}>
         <button className={`save-button ${saved ? 'saved' : ''}`} type="button" aria-label={`${saved ? 'Remove' : 'Save'} ${recipe.title}`} onClick={() => onSave(recipe)}>
           <Icon name="bookmark" size={17} />
         </button>
         <div className="match-badge">{recipe.ingredientMatch}% match</div>
       </RecipeHeroImage>
       <div className="recipe-card-body">
+        {isTopPick && <p className="top-pick-label"><Icon name="sparkles" size={14} /> Top pick</p>}
         <div className="recipe-tags">
           {recipe.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
         </div>
@@ -482,9 +562,11 @@ function RecipeCard({ recipe, onOpen, onSave, saved }) {
           <span><Icon name="users" size={17} /> {recipe.servings} servings</span>
           <span>{recipe.difficulty}</span>
         </div>
-        {missingCount > 0 && (
-          <div className="missing-summary"><Icon name="basket" size={15} /> {missingCount} missing ingredient{missingCount === 1 ? '' : 's'}</div>
-        )}
+        <div className="match-breakdown">
+          <IngredientPreview label="You already have" ingredients={availableIngredients} prefix="✓" emptyText="No confirmed matches yet." />
+          <IngredientPreview label="You still need" ingredients={missingIngredients} prefix="+" emptyText="Nothing else — you’re ready." />
+        </div>
+        <GroceryAction recipe={recipe} compact />
         <button type="button" className="recipe-open" onClick={() => onOpen(recipe)}>
           View recipe <Icon name="arrow" size={17} />
         </button>
@@ -498,7 +580,7 @@ function RecipeCard({ recipe, onOpen, onSave, saved }) {
   )
 }
 
-function RecipeModal({ recipe, onClose, safetyNote, onSave, saved }) {
+function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePhotos }) {
   useEffect(() => {
     function closeOnEscape(event) {
       if (event.key === 'Escape') onClose()
@@ -511,8 +593,9 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved }) {
     }
   }, [onClose])
 
-  const artwork = getRecipeArtwork(recipe)
-  const missing = new Set((recipe.missingIngredients || []).map((item) => item.toLowerCase()))
+  const missingIngredients = getMissingIngredients(recipe)
+  const availableIngredients = Array.isArray(recipe.availableIngredients) ? recipe.availableIngredients : []
+  const missing = new Set(missingIngredients.map((item) => item.name.toLowerCase()))
   const isSourced = Boolean(recipe.sourceUrl)
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
@@ -525,18 +608,24 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved }) {
         <button className={`modal-save ${saved ? 'saved' : ''}`} type="button" onClick={() => onSave(recipe)}>
           <Icon name="bookmark" size={16} /> {saved ? 'Saved' : 'Save'}
         </button>
-        <div className="modal-hero" data-art-theme={artwork.theme}>
-          <div className="modal-emoji" aria-hidden="true">{artwork.ingredients.map((item) => item.icon).join(' ')}</div>
-          <span>{recipe.cuisine}</span>
-          <h2 id="recipe-title">{recipe.title}</h2>
-          <div className="modal-meta">
-            <span><Icon name="clock" size={17} /> {recipe.cookingMinutes > 0 ? `${recipe.cookingMinutes} min` : 'Time on source'}</span>
-            <span><Icon name="users" size={18} /> {recipe.servings} servings</span>
-            <span>{recipe.difficulty}</span>
+        <RecipeHeroImage recipe={recipe} showRecipePhotos={showRecipePhotos} className="modal-hero">
+          <div className="modal-hero-content">
+            <span>{recipe.ingredientMatch}% match · {recipe.cuisine}</span>
+            <h2 id="recipe-title">{recipe.title}</h2>
+            <div className="modal-meta">
+              <span><Icon name="clock" size={17} /> {recipe.cookingMinutes > 0 ? `${recipe.cookingMinutes} min` : 'Time on source'}</span>
+              <span><Icon name="users" size={18} /> {recipe.servings} servings</span>
+              <span>{recipe.difficulty}</span>
+            </div>
           </div>
-        </div>
+        </RecipeHeroImage>
         <div className="modal-content">
           <p className="modal-description">{recipe.description}</p>
+          <div className="modal-match-panel">
+            <IngredientPreview label="You have" ingredients={availableIngredients} prefix="✓" emptyText="No confirmed matches yet." />
+            <IngredientPreview label="You need" ingredients={missingIngredients} prefix="+" emptyText="You have everything you need." />
+          </div>
+          <GroceryAction recipe={recipe} />
           <div className="recipe-columns">
             <section>
               <p className="eyebrow">What you'll need</p>
@@ -593,6 +682,9 @@ export default function App() {
   const [servings, setServings] = useState(() => [1, 2, 3, 4, 6].includes(Number(INITIAL_PREFERENCES.servings))
     ? Number(INITIAL_PREFERENCES.servings)
     : DEFAULT_PREFERENCES.servings)
+  const [showRecipePhotos, setShowRecipePhotos] = useState(() => typeof INITIAL_PREFERENCES.showRecipePhotos === 'boolean'
+    ? INITIAL_PREFERENCES.showRecipePhotos
+    : DEFAULT_PREFERENCES.showRecipePhotos)
   const [recipes, setRecipes] = useState([])
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [safetyNote, setSafetyNote] = useState('')
@@ -635,8 +727,8 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    savePreferences({ allergens, dietaryPreference, avoidText, maxCookingMinutes, servings })
-  }, [allergens, dietaryPreference, avoidText, maxCookingMinutes, servings])
+    savePreferences({ allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, showRecipePhotos })
+  }, [allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, showRecipePhotos])
 
   function addPhotos(files) {
     setError('')
@@ -916,6 +1008,11 @@ export default function App() {
                       />
                       <p className="field-help">Separate multiple ingredients with commas.</p>
                     </div>
+                    <label className="photo-preference">
+                      <span><strong>Show recipe photos</strong><small>Load real food photography from the recipe provider.</small></span>
+                      <input type="checkbox" checked={showRecipePhotos} onChange={(event) => setShowRecipePhotos(event.target.checked)} />
+                      <i aria-hidden="true"><span /></i>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -923,7 +1020,7 @@ export default function App() {
               <div className="generate-bar">
                 <div><Icon name="sparkles" size={22} /><p><strong>Everything look right?</strong><span>We will find three suitable ideas.</span></p></div>
                 <button className="primary-button large" type="button" disabled={!validIngredients.length || Boolean(busy)} onClick={handleGenerate}>
-                  {busy === 'generating' ? <><span className="spinner" /> Finding recipes…</> : <>Find my recipes <Icon name="arrow" size={19} /></>}
+                  {busy === 'generating' ? <><span className="spinner" /> Finding recipes you can almost make…</> : <>Find real recipes <Icon name="arrow" size={19} /></>}
                 </button>
                 {usage && <span className="usage-note">{usage.recipesRemaining} of {usage.recipeLimit} free generations left today</span>}
               </div>
@@ -941,12 +1038,14 @@ export default function App() {
                 <span className="section-number">03</span>
               </div>
               <div className="recipe-grid">
-                {recipes.map((recipe) => (
+                {recipes.map((recipe, index) => (
                   <RecipeCard
                     recipe={recipe}
                     onOpen={setSelectedRecipe}
                     onSave={toggleSaved}
                     saved={savedRecipes.some((item) => item.id === recipe.id)}
+                    showRecipePhotos={showRecipePhotos}
+                    isTopPick={index === 0}
                     key={recipe.id}
                   />
                 ))}
@@ -973,6 +1072,7 @@ export default function App() {
         onClose={() => setSelectedRecipe(null)}
         onSave={toggleSaved}
         saved={savedRecipes.some((item) => item.id === selectedRecipe.id)}
+        showRecipePhotos={showRecipePhotos}
       />}
       {showLibrary && <LibraryModal
         savedRecipes={savedRecipes}

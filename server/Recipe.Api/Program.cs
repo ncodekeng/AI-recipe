@@ -10,6 +10,9 @@ builder.Services.Configure<RecipeCatalogOptions>(builder.Configuration.GetSectio
 builder.Services.Configure<UsageControlOptions>(builder.Configuration.GetSection(UsageControlOptions.SectionName));
 builder.Services.AddSingleton<DemoFoodAiService>();
 builder.Services.AddSingleton<RecipeSafetyValidator>();
+builder.Services.AddSingleton<IngredientNormalizer>();
+builder.Services.AddSingleton<RecipeRankingService>();
+builder.Services.AddSingleton<IGroceryBasketService, DeliverooBasketService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<AiUsageGuard>();
 builder.Services.AddSingleton<FeedbackService>();

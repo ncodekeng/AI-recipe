@@ -11,8 +11,11 @@ This repository is the independently built, mobile-first implementation referenc
 - Fourteen UK allergens, custom avoided ingredients, diet, time, and serving settings
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
 - Optional Edamam search for real, attributed web recipes with publisher links and provider imagery
+- Backend ingredient normalization, meaningful pantry-staple handling, near-match scoring, and provider-aware ranking
 - Recipe-specific generated artwork derived from the title and primary ingredients, with deterministic visual fallbacks when no image exists or a remote image fails
-- Visible owned/missing ingredient matching and source-aware recipe details
+- A persisted Show recipe photos switch that prevents remote image requests when disabled
+- Visible owned/missing ingredient matching, a primary Top Pick, and source-aware recipe details
+- An isolated Deliveroo grocery-basket contract with an honest manual handoff until partner basket access is approved
 - Lightweight source bookmarks, generated-recipe saves, and input-only recent history in browser storage
 - Feedback API and UI, request timeouts, friendly error/empty states, daily quotas, one-active-request enforcement, a global estimated budget cutoff, and an AI kill switch
 - One responsive React/Vite client and ASP.NET Core .NET 10 API, packaged as a single production container
@@ -118,7 +121,7 @@ The integration uses Azure OpenAI's `/openai/v1/chat/completions` endpoint. Phot
 
 ## Find real recipes
 
-The production-oriented recipe path uses [Edamam Recipe Search](https://developer.edamam.com/edamam-recipe-api). Its web-recipe results provide ingredients and an original publisher URL; PLATE links out for the copyrighted cooking method and loads Edamam's required attribution badge. Confirm the chosen commercial plan, caching rights, image rights, and attribution obligations before launch.
+The primary production recipe path uses [Edamam Recipe Search](https://developer.edamam.com/edamam-recipe-api). Its web-recipe results provide ingredients, provider photography, and an original publisher URL; PLATE links out for the copyrighted cooking method and loads Edamam's required attribution badge. Results are normalized and ranked after the dietary safety check, so a useful provider-ranked recipe needing roughly one to three meaningful ingredients can beat a less useful complete match. Confirm the chosen commercial plan, caching rights, image rights, and attribution obligations before launch.
 
 ```powershell
 $env:RecipeCatalog__Provider = 'Edamam'
@@ -130,6 +133,14 @@ dotnet run --project server/Recipe.Api
 Real-recipe mode fails clearly if credentials are missing or the provider is unavailable. It does not silently generate recipes. An explicit `RecipeCatalog__UseGeneratedFallback=true` opt-in is available for non-production demos.
 
 Sourced saves retain only a small local bookmark (title, publisher, and source URL); the app does not cache the third-party recipe body or image. Generated recipes can be saved in full in the current browser.
+
+## Deliveroo grocery handoff
+
+The UI sends only a recipe's calculated `missingIngredients` to `POST /api/grocery/deliveroo/basket`. `IGroceryBasketService` keeps grocery-provider behavior outside React and `DeliverooBasketService` currently returns a manual shopping-list handoff to Deliveroo without claiming that a basket was created.
+
+Deliveroo does not provide this project with an approved public consumer basket endpoint. True checkout creation therefore remains disabled. It requires a Deliveroo developer/partner account, the applicable Retail Platform or Signature agreement, production API access, the authentication credentials and scopes supplied for that agreement, and the Deliveroo product/catalog, merchant/site, location, and customer context required by their approved basket flow. Do not invent endpoint URLs or credential names before Deliveroo supplies the integration contract.
+
+No new Deliveroo environment variables are required for the current manual handoff.
 
 ## Cost and abuse controls
 
@@ -159,6 +170,7 @@ This implementation behavior is not a substitute for a reviewed privacy policy, 
 
 ```powershell
 dotnet build AIRecipe.slnx
+dotnet test AIRecipe.slnx
 cd client
 npm test
 npm run build
@@ -166,7 +178,7 @@ cd ..
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
 ```
 
-The frontend tests check recipe-specific visual selection and deterministic fallbacks. The smoke suite checks image upload, recipe generation, allergen and custom-avoid filtering, usage tracking, quota enforcement, and feedback rate limiting. Edamam requires client-owned credentials and should also be exercised in staging before release.
+The backend tests cover ingredient aliases, missing-ingredient calculation, pantry basics, near-match ranking, provider image mapping/serialization, and the Deliveroo handoff. Frontend tests cover recipe-specific artwork, photo ON/OFF/failure decisions, preference persistence, missing-only basket payloads, and the zero-missing case. The smoke suite checks image upload, recipe generation, allergen and custom-avoid filtering, usage tracking, quota enforcement, and feedback rate limiting. Edamam requires client-owned credentials and should also be exercised in staging before release.
 
 ## API endpoints
 
@@ -174,6 +186,7 @@ The frontend tests check recipe-specific visual selection and deterministic fall
 - `GET /api/usage` — current anonymous daily allowance
 - `POST /api/ingredients/analyze` — multipart form with one to six `photos`
 - `POST /api/recipes/generate` — corrected ingredients, restrictions, time, and servings
+- `POST /api/grocery/deliveroo/basket` — prepares only the selected recipe's missing ingredients for the supported grocery handoff
 - `POST /api/feedback` — rating and optional short comment
 
 ## Known launch blockers

@@ -17,7 +17,12 @@ public sealed class GenerateRecipesRequest
     public int Servings { get; init; } = 2;
 }
 
-public sealed record RecipeIngredient(string Amount, string Name);
+public sealed record RecipeIngredient(
+    string Amount,
+    string Name,
+    double? Quantity = null,
+    string? Unit = null,
+    string? OriginalText = null);
 
 public sealed record RecipeSuggestion(
     Guid Id,
@@ -32,10 +37,13 @@ public sealed record RecipeSuggestion(
     IReadOnlyList<RecipeIngredient> Ingredients,
     IReadOnlyList<string> Steps,
     string Accent,
-    IReadOnlyList<string>? MissingIngredients = null,
+    IReadOnlyList<RecipeIngredient>? MissingIngredients = null,
     string? SourceName = null,
     string? SourceUrl = null,
-    string? ImageUrl = null);
+    string? ImageUrl = null,
+    IReadOnlyList<RecipeIngredient>? AvailableIngredients = null,
+    int RequiredIngredientCount = 0,
+    int AvailableIngredientCount = 0);
 
 public sealed record RecipeGenerationResponse(
     IReadOnlyList<RecipeSuggestion> Recipes,

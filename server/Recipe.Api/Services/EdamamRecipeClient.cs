@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -47,16 +48,20 @@ public sealed class EdamamRecipeClient(
 
         var query = BuildQuery(request);
         using var response = await httpClient.GetAsync(query, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            throw new InvalidOperationException("The real recipe provider rate limit was reached. Please wait and try again.");
+        }
         response.EnsureSuccessStatusCode();
 
         var payload = await response.Content.ReadFromJsonAsync<EdamamSearchResponse>(cancellationToken)
             ?? throw new InvalidOperationException("Edamam returned an empty response.");
 
         var recipes = payload.Hits
-            .Select((hit, index) => MapRecipe(hit.Recipe, request, index))
+            .Select(hit => MapRecipe(hit.Recipe, request))
             .Where(recipe => recipe is not null)
             .Cast<RecipeSuggestion>()
-            .Take(3)
+            .Take(24)
             .ToList();
 
         if (recipes.Count == 0)
@@ -103,7 +108,8 @@ public sealed class EdamamRecipeClient(
             new("field", "cuisineType"),
             new("field", "dietLabels"),
             new("field", "healthLabels"),
-            new("field", "image")
+            new("field", "image"),
+            new("field", "images")
         };
 
         foreach (var healthLabel in GetHealthLabels(request))
@@ -156,8 +162,7 @@ public sealed class EdamamRecipeClient(
 
     private static RecipeSuggestion? MapRecipe(
         EdamamRecipe recipe,
-        GenerateRecipesRequest request,
-        int index)
+        GenerateRecipesRequest request)
     {
         if (string.IsNullOrWhiteSpace(recipe.Label) ||
             string.IsNullOrWhiteSpace(recipe.Url) ||
@@ -169,8 +174,11 @@ public sealed class EdamamRecipeClient(
 
         var ingredients = recipe.Ingredients
             .Select(item => new RecipeIngredient(
-                string.IsNullOrWhiteSpace(item.Text) ? FormatAmount(item.Quantity, item.Measure) : string.Empty,
-                FirstNotEmpty(item.Text, item.Food, "Ingredient")))
+                FormatAmount(item.Quantity, item.Measure, item.Text),
+                FirstNotEmpty(item.Food, item.Text, "Ingredient"),
+                item.Quantity > 0 ? item.Quantity : null,
+                string.IsNullOrWhiteSpace(item.Measure) ? null : item.Measure.Trim(),
+                string.IsNullOrWhiteSpace(item.Text) ? null : item.Text.Trim()))
             .ToList();
         if (ingredients.Count == 0)
         {
@@ -180,14 +188,6 @@ public sealed class EdamamRecipeClient(
                 .ToList();
         }
 
-        var missing = ingredients
-            .Where(item => !PantryContains(request.Ingredients, item.Name))
-            .Select(item => item.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        var match = ingredients.Count == 0
-            ? 0
-            : (int)Math.Round(100d * (ingredients.Count - missing.Count) / ingredients.Count);
         var tags = recipe.DietLabels
             .Concat(recipe.HealthLabels)
             .Where(label => !string.IsNullOrWhiteSpace(label))
@@ -207,40 +207,27 @@ public sealed class EdamamRecipeClient(
             "Source recipe",
             recipe.CuisineType.FirstOrDefault() ?? "International",
             recipe.Yield > 0 ? Math.Max(1, (int)Math.Round(recipe.Yield)) : request.Servings,
-            match,
+            0,
             tags,
             ingredients,
             [],
-            AccentFor(index),
-            missing,
+            AccentFor(recipe.Label),
+            null,
             FirstNotEmpty(recipe.Source, sourceUri.Host, "Original publisher"),
             recipe.Url,
-            ValidHttpsUrl(recipe.Image));
+            BestImageUrl(recipe));
     }
 
-    private static bool PantryContains(IEnumerable<IngredientInput> pantry, string recipeIngredient)
-    {
-        var recipeTokens = Tokens(recipeIngredient);
-        return pantry.Any(item =>
-        {
-            var pantryTokens = Tokens(item.Name);
-            return recipeTokens.Intersect(pantryTokens, StringComparer.OrdinalIgnoreCase).Any();
-        });
-    }
-
-    private static IEnumerable<string> Tokens(string value) =>
-        value.ToLowerInvariant()
-            .Split([' ', ',', '-', '(', ')', '/', '&'], StringSplitOptions.RemoveEmptyEntries)
-            .Select(token => token.Length > 3 && token.EndsWith('s') ? token[..^1] : token)
-            .Where(token => token.Length >= 3 && token is not "fresh" and not "large" and not "small");
-
-    private static string FormatAmount(double quantity, string? measure)
+    private static string FormatAmount(double quantity, string? measure, string? originalText = null)
     {
         var amount = quantity > 0
             ? quantity.ToString("0.##", CultureInfo.InvariantCulture)
             : string.Empty;
-        return string.Join(' ', new[] { amount, measure?.Trim() }
+        var formatted = string.Join(' ', new[] { amount, measure?.Trim() }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
+        return string.IsNullOrWhiteSpace(formatted)
+            ? FirstNotEmpty(originalText, "As needed")
+            : formatted;
     }
 
     private static Guid StableGuid(string value)
@@ -257,7 +244,7 @@ public sealed class EdamamRecipeClient(
             ? uri.ToString()
             : null;
 
-    private static string AccentFor(int index) => (index % 3) switch
+    private static string AccentFor(string title) => ((StableGuid(title).GetHashCode() & int.MaxValue) % 3) switch
     {
         0 => "coral",
         1 => "saffron",
@@ -292,6 +279,9 @@ public sealed class EdamamRecipeClient(
 
         [JsonPropertyName("image")]
         public string? Image { get; init; }
+
+        [JsonPropertyName("images")]
+        public Dictionary<string, EdamamImage> Images { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 
         [JsonPropertyName("yield")]
         public double Yield { get; init; }
@@ -328,5 +318,24 @@ public sealed class EdamamRecipeClient(
 
         [JsonPropertyName("measure")]
         public string? Measure { get; init; }
+    }
+
+    private sealed class EdamamImage
+    {
+        [JsonPropertyName("url")]
+        public string? Url { get; init; }
+    }
+
+    private static string? BestImageUrl(EdamamRecipe recipe)
+    {
+        foreach (var size in new[] { "LARGE", "REGULAR", "SMALL", "THUMBNAIL" })
+        {
+            if (recipe.Images.TryGetValue(size, out var image) && ValidHttpsUrl(image.Url) is { } validUrl)
+            {
+                return validUrl;
+            }
+        }
+
+        return ValidHttpsUrl(recipe.Image);
     }
 }

@@ -47,3 +47,12 @@ test('creates deterministic artwork and a generic unknown ingredient', () => {
   assert.deepEqual(first, second)
   assert.equal(first.ingredients[0].key, 'generic-celeriac')
 })
+
+test('uses lamb artwork for the reference recommendation style', () => {
+  const artwork = getRecipeArtwork(recipe(
+    'Red-wine braised lamb shanks',
+    ['Lamb shanks', 'Garlic', 'Onion', 'Carrots'],
+  ))
+
+  assert.deepEqual(artwork.ingredients.map((item) => item.key), ['lamb', 'garlic', 'onion'])
+})

@@ -67,6 +67,10 @@ try {
         throw "Expected 3 recipes but received $($generated.recipes.Count)."
     }
 
+    if ($generated.recipes | Where-Object { $null -eq $_.availableIngredients -or $null -eq $_.missingIngredients }) {
+        throw 'Recipe matching details were not returned.'
+    }
+
     $forbidden = $generated.recipes.ingredients.name |
         Where-Object { $_ -match 'egg|cheese|milk|cream|butter' }
 
@@ -106,6 +110,23 @@ try {
         Where-Object { $_ -match 'tomato' }
     if ($avoided) {
         throw 'A custom avoided ingredient passed the deterministic safety validator.'
+    }
+
+    $basketBody = @{
+        recipeId = $generated.recipes[0].id
+        ingredients = @(
+            @{ name = 'Garlic'; amount = '2 cloves'; quantity = 2; unit = 'clove' },
+            @{ name = 'Feta cheese'; amount = '100 g'; quantity = 100; unit = 'g' }
+        )
+    } | ConvertTo-Json -Depth 5
+    $basket = Invoke-RestMethod `
+        -Uri 'http://localhost:5050/api/grocery/deliveroo/basket' `
+        -Method Post `
+        -Headers $clientHeaders `
+        -ContentType 'application/json' `
+        -Body $basketBody
+    if ($basket.basketCreated -or $basket.checkoutUrl -or $basket.ingredients.Count -ne 2) {
+        throw 'The Deliveroo manual handoff returned an invalid basket claim or ingredient list.'
     }
 
     $feedbackHeaders = @{ 'X-Plate-Client-Id' = 'smoke-feedback-client-0001' }
@@ -169,6 +190,8 @@ try {
         Recipes = $generated.recipes.Count
         AllergyFilter = 'passed'
         CustomAvoidFilter = 'passed'
+        RecipeMatching = 'passed'
+        GroceryHandoff = 'passed'
         Feedback = 'passed'
         UsageQuota = 'passed'
     } | Format-List

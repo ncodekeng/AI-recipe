@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react'
 import { getRecipeArtwork } from './recipeArtwork.js'
+import { shouldUseRemoteRecipeImage } from './recipePhotos.js'
 
-export default function RecipeHeroImage({ recipe, children }) {
+export default function RecipeHeroImage({ recipe, showRecipePhotos = true, className = 'recipe-art', children }) {
   const [imageFailed, setImageFailed] = useState(false)
   const artwork = getRecipeArtwork(recipe)
-  const useRealImage = Boolean(recipe.imageUrl) && !imageFailed
+  const useRealImage = shouldUseRemoteRecipeImage(recipe, showRecipePhotos, imageFailed)
 
   useEffect(() => {
     setImageFailed(false)
-  }, [recipe.imageUrl])
+  }, [recipe.imageUrl, showRecipePhotos])
 
   return (
     <div
-      className={`recipe-art ${useRealImage ? 'has-image' : 'has-fallback'}`}
+      className={`${className} ${useRealImage ? 'has-image' : 'has-fallback'}`}
       data-art-theme={artwork.theme}
     >
       {useRealImage ? (

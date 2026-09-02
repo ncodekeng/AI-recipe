@@ -8,6 +8,7 @@ public sealed class RecipeCatalogService(
     IRecipeAiService generatedRecipes,
     EdamamRecipeClient edamam,
     RecipeSafetyValidator safetyValidator,
+    RecipeRankingService ranking,
     IOptions<RecipeCatalogOptions> options,
     ILogger<RecipeCatalogService> logger) : IRecipeCatalogService
 {
@@ -19,7 +20,8 @@ public sealed class RecipeCatalogService(
     {
         if (!UseEdamam())
         {
-            return await generatedRecipes.GenerateRecipesAsync(request, cancellationToken);
+            var generated = await generatedRecipes.GenerateRecipesAsync(request, cancellationToken);
+            return RankAndLimit(generated, request);
         }
 
         if (!_options.Edamam.IsConfigured)
@@ -31,7 +33,17 @@ public sealed class RecipeCatalogService(
         try
         {
             var response = await edamam.FindRecipesAsync(request, cancellationToken);
-            return safetyValidator.Validate(response, request);
+            var safeResponse = safetyValidator.Validate(response, request);
+            return RankAndLimit(safeResponse, request);
+        }
+        catch (RecipeSafetyException exception) when (_options.UseGeneratedFallback)
+        {
+            logger.LogWarning(exception, "Edamam returned no usable recipes; using the configured generated fallback.");
+            var fallback = await generatedRecipes.GenerateRecipesAsync(request, cancellationToken);
+            return RankAndLimit(fallback with
+            {
+                Notice = "No suitable real recipes were returned, so generated recipe ideas are shown instead."
+            }, request);
         }
         catch (RecipeSafetyException)
         {
@@ -42,10 +54,10 @@ public sealed class RecipeCatalogService(
         {
             logger.LogWarning(exception, "Edamam recipe search failed; using the configured generated fallback.");
             var fallback = await generatedRecipes.GenerateRecipesAsync(request, cancellationToken);
-            return fallback with
+            return RankAndLimit(fallback with
             {
                 Notice = "Real recipe search is temporarily unavailable, so generated recipe ideas are shown instead."
-            };
+            }, request);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -58,6 +70,14 @@ public sealed class RecipeCatalogService(
 
     private bool UseEdamam() =>
         _options.Provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase);
+
+    private RecipeGenerationResponse RankAndLimit(
+        RecipeGenerationResponse response,
+        GenerateRecipesRequest request) =>
+        response with
+        {
+            Recipes = ranking.Rank(response.Recipes, request.Ingredients).Take(3).ToList()
+        };
 }
 
 public sealed class RecipeCatalogException(string message, Exception? innerException = null)
