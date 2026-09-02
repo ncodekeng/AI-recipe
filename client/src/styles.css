@@ -1106,6 +1106,166 @@ main {
   white-space: nowrap;
 }
 
+.loading-experience {
+  position: relative;
+  width: min(940px, 100%);
+  margin: 30px auto 0;
+  padding: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(225, 221, 213, 0.95);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 90% 10%, rgba(237, 91, 79, 0.1), transparent 17rem),
+    linear-gradient(135deg, #fff, #fbfaf7);
+  box-shadow: var(--shadow);
+  animation: loading-arrive 300ms ease-out both;
+}
+
+.loading-experience.analyzing {
+  margin-top: 22px;
+  padding: 22px;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.loading-message {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.loading-orbit {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  flex: 0 0 58px;
+}
+
+.loading-orbit-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(237, 91, 79, 0.15);
+  border-top-color: var(--coral);
+  border-right-color: var(--saffron);
+  border-radius: 50%;
+  animation: spin 1.15s linear infinite;
+}
+
+.loading-orbit-ring::after {
+  position: absolute;
+  inset: 7px;
+  border: 1px dashed rgba(73, 108, 88, 0.38);
+  border-radius: inherit;
+  animation: spin 2.2s linear infinite reverse;
+  content: '';
+}
+
+.loading-orbit-core {
+  position: absolute;
+  inset: 11px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--coral-soft);
+  color: var(--coral);
+  animation: loading-pulse 1.8s ease-in-out infinite;
+}
+
+.loading-message .eyebrow {
+  margin: 0 0 5px;
+}
+
+.loading-message h3 {
+  margin: 0;
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-size: clamp(25px, 3vw, 34px);
+  font-weight: 400;
+  letter-spacing: -0.4px;
+}
+
+.loading-step {
+  min-height: 18px;
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.loading-progress {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+  margin-top: 20px;
+}
+
+.loading-progress span {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #e9e6df;
+}
+
+.loading-progress span.complete {
+  background: rgba(73, 108, 88, 0.55);
+}
+
+.loading-progress span.active {
+  background: linear-gradient(90deg, var(--coral) 0 42%, var(--coral-soft) 42% 100%);
+  background-size: 220% 100%;
+  animation: loading-track 1.15s ease-in-out infinite;
+}
+
+.loading-skeleton-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
+  margin-top: 20px;
+}
+
+.loading-skeleton-card {
+  overflow: hidden;
+  border: 1px solid rgba(225, 221, 213, 0.85);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.skeleton-photo,
+.loading-skeleton-card div span {
+  display: block;
+  background: linear-gradient(100deg, #efede7 20%, #faf9f6 38%, #efede7 56%);
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+.skeleton-photo {
+  height: 90px;
+}
+
+.loading-skeleton-card div {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.loading-skeleton-card div span {
+  width: 92%;
+  height: 7px;
+  border-radius: 99px;
+}
+
+.loading-skeleton-card div span:nth-child(2) {
+  width: 68%;
+}
+
+.loading-skeleton-card div span:nth-child(3) {
+  width: 46%;
+}
+
 .results-section {
   margin-top: 112px;
 }
@@ -2296,6 +2456,22 @@ footer p {
   from { opacity: 0; transform: translateY(18px) scale(0.985); }
 }
 
+@keyframes loading-arrive {
+  from { opacity: 0; transform: translateY(10px); }
+}
+
+@keyframes loading-pulse {
+  50% { transform: scale(0.9); opacity: 0.72; }
+}
+
+@keyframes loading-track {
+  to { background-position: -120% 0; }
+}
+
+@keyframes skeleton-shimmer {
+  to { background-position: -120% 0; }
+}
+
 @media (max-width: 900px) {
   .hero {
     grid-template-columns: 1fr minmax(240px, 0.45fr);
@@ -2486,6 +2662,28 @@ footer p {
 
   .usage-note {
     text-align: center;
+  }
+
+  .loading-experience {
+    padding: 23px 18px;
+  }
+
+  .loading-message {
+    align-items: flex-start;
+  }
+
+  .loading-orbit {
+    width: 50px;
+    height: 50px;
+    flex-basis: 50px;
+  }
+
+  .loading-skeleton-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .loading-skeleton-card:nth-child(n + 2) {
+    display: none;
   }
 
   .recipe-grid {

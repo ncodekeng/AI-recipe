@@ -327,6 +327,66 @@ function Stepper({ currentStep }) {
   )
 }
 
+const LOADING_COPY = {
+  analyzing: {
+    eyebrow: 'Scanning your kitchen',
+    title: 'Looking closely at your photos',
+    steps: ['Uploading photos securely', 'Identifying food and ingredients', 'Estimating quantities', 'Preparing your editable list'],
+  },
+  generating: {
+    eyebrow: 'Searching live recipe sources',
+    title: 'Finding recipes you can almost make',
+    steps: ['Searching online publishers', 'Checking your dietary settings', 'Comparing every ingredient', 'Ranking your strongest matches'],
+  },
+}
+
+function LoadingExperience({ mode }) {
+  const [activeStep, setActiveStep] = useState(0)
+  const content = LOADING_COPY[mode]
+
+  useEffect(() => {
+    setActiveStep(0)
+    const timer = window.setInterval(() => {
+      setActiveStep((current) => (current + 1) % content.steps.length)
+    }, 1800)
+    return () => window.clearInterval(timer)
+  }, [content])
+
+  return (
+    <section
+      className={`loading-experience ${mode}`}
+      id={mode === 'generating' ? 'recipe-loading' : undefined}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="loading-message">
+        <div className="loading-orbit" aria-hidden="true">
+          <span className="loading-orbit-ring" />
+          <span className="loading-orbit-core"><Icon name={mode === 'analyzing' ? 'camera' : 'sparkles'} size={23} /></span>
+        </div>
+        <div>
+          <p className="eyebrow">{content.eyebrow}</p>
+          <h3>{content.title}</h3>
+          <p className="loading-step">{content.steps[activeStep]}<span aria-hidden="true">…</span></p>
+        </div>
+      </div>
+      <div className="loading-progress" aria-hidden="true">
+        {content.steps.map((step, index) => <span className={index === activeStep ? 'active' : index < activeStep ? 'complete' : ''} key={step} />)}
+      </div>
+      {mode === 'generating' && (
+        <div className="loading-skeleton-grid" aria-hidden="true">
+          {[0, 1, 2].map((item) => (
+            <div className="loading-skeleton-card" key={item}>
+              <span className="skeleton-photo" />
+              <div><span /><span /><span /></div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function PhotoUploader({ photos, onFiles, onRemove, busy }) {
   const [isDragging, setIsDragging] = useState(false)
   const inputRef = useRef(null)
@@ -730,6 +790,14 @@ export default function App() {
     savePreferences({ allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, showRecipePhotos })
   }, [allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, showRecipePhotos])
 
+  useEffect(() => {
+    if (busy !== 'generating') return
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('recipe-loading')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [busy])
+
   function addPhotos(files) {
     setError('')
     const supported = files.filter((file) => SUPPORTED_IMAGE_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES)
@@ -812,6 +880,8 @@ export default function App() {
   async function handleGenerate() {
     if (!validIngredients.length) return
     setBusy('generating')
+    setRecipes([])
+    setSelectedRecipe(null)
     setError('')
     setNotice('')
     try {
@@ -892,7 +962,7 @@ export default function App() {
         </nav>
       </header>
 
-      <main id="top">
+      <main id="top" aria-busy={Boolean(busy)}>
         <section className="hero">
           <div className="hero-copy">
             <p className="eyebrow"><Icon name="sparkles" size={17} /> Your kitchen, reimagined</p>
@@ -926,6 +996,7 @@ export default function App() {
                 {busy === 'analyzing' ? <><span className="spinner" /> Looking closely…</> : <>Find my ingredients <Icon name="arrow" size={18} /></>}
               </button>
             </div>
+            {busy === 'analyzing' && <LoadingExperience mode="analyzing" />}
           </div>
 
           {error && <div className="alert error" role="alert"><span>!</span><p>{error}</p></div>}
@@ -1026,6 +1097,8 @@ export default function App() {
               </div>
             </section>
           )}
+
+          {busy === 'generating' && <LoadingExperience mode="generating" />}
 
           {recipes.length > 0 && (
             <section className="results-section" ref={resultsRef}>

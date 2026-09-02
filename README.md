@@ -15,6 +15,7 @@ This repository is the independently built, mobile-first implementation referenc
 - Recipe-specific built-in artwork derived from the title and primary ingredients, used only as a visual fallback when no remote image exists or one fails
 - A persisted Show recipe photos switch that prevents remote image requests when disabled
 - Visible owned/missing ingredient matching, a primary Top Pick, and source-aware recipe details
+- Animated scan progress and responsive recipe-search skeletons for slower provider requests
 - An isolated Deliveroo grocery-basket contract with an honest manual handoff until partner basket access is approved
 - Lightweight source bookmarks and input-only recent history in browser storage
 - Feedback API and UI, request timeouts, friendly error/empty states, daily quotas, one-active-request enforcement, a global estimated budget cutoff, and an AI kill switch
