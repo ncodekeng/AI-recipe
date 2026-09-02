@@ -32,7 +32,7 @@ React mobile web client
       └─ usage, budget, and feedback controls
 ```
 
-The API owns validation and provider orchestration, allowing a future Base44, iOS, or Android client to reuse the same business rules. Dapr is intentionally not enabled while this remains a single service.
+The API owns validation and provider orchestration, allowing a future Base44, iOS, or Android client to reuse the same business rules. This is one web app and API, so it has no Dapr dependency or sidecar.
 
 ## Run locally
 
@@ -64,6 +64,41 @@ docker run --rm -p 8080:8080 plate-recipe
 ```
 
 Open `http://localhost:8080`. The image is suitable for Azure Container Apps with external ingress targeting port 8080. This Windows development host currently runs Docker in Windows-container mode, so the Linux image must be built by CI, Azure, or a Docker engine switched to Linux containers.
+
+## Deploy on an Azure free subscription
+
+The recommended prototype deployment is a code-based **Azure App Service Free F1** web app. It does not create Container Apps, Container Registry, Kubernetes, Log Analytics, or Dapr resources. React and ASP.NET Core are published together as one ZIP package, and Azure returns its public HTTPS address after deployment.
+
+Prerequisites: an Azure subscription, Azure CLI, .NET SDK 10+, Node.js 20+, and npm.
+
+```powershell
+az login
+powershell -ExecutionPolicy Bypass -File scripts/deploy-azure-free.ps1 -AppName YOUR-GLOBALLY-UNIQUE-APP-NAME
+```
+
+The script creates only these Azure resources:
+
+- One resource group
+- One Linux App Service plan pinned to the `F1` free SKU
+- One public App Service web app
+
+It refuses to reuse a plan that is not `F1`, which helps avoid accidentally deploying onto a paid SKU. F1 availability and quotas depend on the subscription and region; use `-Location` to choose another region if `uksouth` is unavailable.
+
+Without a private settings file, the public deployment starts in demo mode. To enable real Azure AI, copy the ignored settings template, replace every placeholder locally, and deploy again:
+
+```powershell
+Copy-Item azure/appsettings.production.example.json azure/appsettings.production.json
+notepad azure/appsettings.production.json
+powershell -ExecutionPolicy Bypass -File scripts/deploy-azure-free.ps1 -AppName YOUR-APP-NAME
+```
+
+`azure/appsettings.production.json` is ignored by Git. Its values are uploaded to App Service application settings and are never included in the ZIP package. The website hosting can remain within the F1 tier, but Azure OpenAI, Edamam, a custom domain, and any later storage or monitoring resources have their own pricing and quotas.
+
+To create the deployable ZIP without touching Azure:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-azure.ps1
+```
 
 ## Connect Azure OpenAI
 
