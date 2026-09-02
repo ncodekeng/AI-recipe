@@ -23,7 +23,8 @@ Keep this stage focused on converting temporary kitchen photos into an editable 
 5. Treat recognition as a draft. The next stage must let the user correct every ingredient and quantity.
 6. Show an animated, accessible loading state for slow scans and preserve a useful error when no food is found.
 7. Never generate recipes in the scan provider. Recipe discovery belongs to the sourced catalogue stage.
+8. Cache successful Azure scan responses per anonymous client and photo-content digest for up to seven days. Cache only the structured response, never photo bytes, and do not consume scan allowance on a cache hit.
 
 ## Verify
 
-Run the backend tests, frontend tests, and production frontend build. Exercise a multipart upload when the request contract changes.
+Run the backend tests, frontend tests, and production frontend build. Exercise a multipart upload when the request contract changes, and verify that identical photos are isolated per client and skip a second Azure call.

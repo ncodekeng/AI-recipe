@@ -2,6 +2,7 @@ const SAVED_KEY = 'plate.saved.v1'
 const HISTORY_KEY = 'plate.history.v1'
 const MAX_SAVED = 20
 const MAX_HISTORY = 10
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function readList(key) {
   try {
@@ -63,9 +64,18 @@ export function addHistoryEntry(current, request, response) {
     maxCookingMinutes: request.maxCookingMinutes,
     servings: request.servings,
     resultCount: response.recipes.length,
+    recipeIds: response.recipes.map((recipe) => recipe.id).filter(Boolean).slice(0, 3),
+    recipeTitles: response.recipes.map((recipe) => recipe.title).filter(Boolean).slice(0, 3),
     provider: response.provider,
   }
   return writeList(HISTORY_KEY, [entry, ...current].slice(0, MAX_HISTORY))
+}
+
+export function getRecentlyShownRecipeIds(history) {
+  return [...new Set((Array.isArray(history) ? history : [])
+    .flatMap((entry) => Array.isArray(entry.recipeIds) ? entry.recipeIds : [])
+    .filter((id) => typeof id === 'string' && GUID_PATTERN.test(id)))]
+    .slice(0, 30)
 }
 
 export function clearLibrary() {

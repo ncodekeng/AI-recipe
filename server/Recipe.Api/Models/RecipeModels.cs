@@ -8,6 +8,7 @@ public sealed class GenerateRecipesRequest
     public List<IngredientInput> Ingredients { get; init; } = [];
     public List<string> Allergens { get; init; } = [];
     public List<string> AvoidIngredients { get; init; } = [];
+    public List<Guid> RecentlyShownRecipeIds { get; init; } = [];
     public string DietaryPreference { get; init; } = "Anything";
 
     [Range(10, 180)]

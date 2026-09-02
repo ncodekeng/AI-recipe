@@ -8,4 +8,5 @@ public sealed record UsageStatusResponse(
     int ScansRemaining,
     int RecipesUsed,
     int RecipeLimit,
-    int RecipesRemaining);
+    int RecipesRemaining,
+    bool CanReset);

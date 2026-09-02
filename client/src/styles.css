@@ -1100,10 +1100,33 @@ main {
 }
 
 .usage-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: #858279;
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.usage-note button {
+  padding: 4px 8px;
+  border: 1px solid #d9d4ca;
+  border-radius: 999px;
+  background: #fff;
+  color: #67645d;
+  font: inherit;
+  cursor: pointer;
+}
+
+.usage-note button:hover:not(:disabled) {
+  border-color: var(--coral);
+  color: var(--coral-dark);
+}
+
+.usage-note button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .loading-experience {
@@ -2661,6 +2684,7 @@ footer p {
   }
 
   .usage-note {
+    justify-content: center;
     text-align: center;
   }
 

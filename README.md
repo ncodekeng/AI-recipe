@@ -6,19 +6,20 @@ This repository is the independently built, mobile-first implementation referenc
 
 - One to six camera/gallery photos with previews, removal, signature validation, and no application-level photo storage
 - Azure OpenAI multimodal ingredient recognition, quantity estimates, confidence, irrelevant-photo filtering, and frozen-meal classification
+- A private per-browser seven-day Azure scan-result cache keyed by photo content, without retaining uploaded photo bytes
 - Credential-free deterministic demo recognition for local development and presentations
-- Required ingredient review with edit, add, remove, and quantity correction
+- Required ingredient review with edit, add, remove, quantity correction, and browser-persisted Kitchen Memory
 - Fourteen UK allergens, custom avoided ingredients, diet, time, and serving settings
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
 - Edamam search for real, attributed web recipes with publisher links and provider imagery
-- Backend ingredient normalization, meaningful pantry-staple handling, near-match scoring, and provider-aware ranking
+- Backend ingredient normalization, meaningful pantry-staple handling, a guaranteed fewest-missing Top Pick, and recent-result diversification
 - A license-gated seven-day recipe-result cache keyed by normalized ingredients and every safety preference
 - Recipe-specific built-in artwork derived from the title and primary ingredients, used only as a visual fallback when no remote image exists or one fails
 - A persisted Show recipe photos switch that prevents remote image requests when disabled
 - Visible owned/missing ingredient matching, a primary Top Pick, and source-aware recipe details
 - Animated scan progress and responsive recipe-search skeletons for slower provider requests
 - An isolated Deliveroo grocery-basket contract with an honest manual handoff until partner basket access is approved
-- Lightweight source bookmarks and input-only recent history in browser storage
+- Lightweight source bookmarks and recent search/result history in browser storage
 - Feedback API and UI, request timeouts, friendly error/empty states, daily quotas, one-active-request enforcement, a global estimated budget cutoff, and an AI kill switch
 - One responsive React/Vite client and ASP.NET Core .NET 10 API, packaged as a single production container
 
@@ -151,9 +152,17 @@ dotnet run --project server/Recipe.Api
 
 Sourced saves retain only a small local bookmark (title, publisher, and source URL). With the default cache-disabled configuration, the app does not retain the third-party recipe body or image.
 
-### Seven-day recipe cache
+### Seven-day scan and recipe caches
 
-The cache saves Edamam calls, not Azure tokens: Azure is used only for ingredient recognition, while Edamam performs recipe search. The implementation uses a safety-aware key containing normalized ingredient names, allergens, avoided ingredients, diet, cooking time, and servings. It holds up to 500 search results in server memory for 168 hours, so a process restart or Azure App Service recycle clears it.
+Successful Azure ingredient scans are cached for the same anonymous browser and photo content for up to 168 hours. A cache hit returns the detected ingredient draft without calling Azure or using another scan allowance. Only the response is retained; uploaded photo bytes are not stored. The cache is in server memory, so an App Service recycle clears it.
+
+```powershell
+$env:FoodAi__ScanCache__Enabled = 'true'
+$env:FoodAi__ScanCache__DurationHours = '168'
+$env:FoodAi__ScanCache__MaxEntries = '500'
+```
+
+The separate recipe cache saves Edamam calls. It uses a safety-aware key containing normalized ingredient names, allergens, avoided ingredients, recent result IDs, diet, cooking time, and servings. It holds up to 500 search results in server memory for 168 hours, so a process restart or Azure App Service recycle clears it.
 
 Caching is disabled by default because Edamam prohibits storing full recipe results unless the applicable contract explicitly grants that right. Do not enable it for the free plan or merely because a paid plan mentions limited caching; this implementation retains structured recipe ingredients and therefore requires permission covering all cached fields and the way PLATE serves them. After receiving and recording that permission, enable both gates:
 
@@ -184,16 +193,18 @@ Defaults are configured under `UsageControl` in `appsettings.json` and can be ov
 - USD 50 estimated global daily cutoff
 - `UsageControl__AiEnabled=false` emergency kill switch
 
+The tracked local `dotnet run` profile enables **Reset test uses**, which calls `POST /api/usage/reset` for the current anonymous browser. `UsageControl__AllowTestReset` remains false by default and must remain false on a public deployment.
+
 These counters are intentionally in memory for the single-instance prototype. A public multi-instance launch must move quotas/idempotency to a shared durable store, use authenticated account limits, add gateway/IP bot controls, and measure actual provider token/call cost. Browser IDs alone are not an abuse-proof identity.
 
 Feedback is written as structured application telemetry. Configure a durable production log sink (for example Azure Log Analytics/Application Insights) before relying on it for client review.
 
 ## Browser data and privacy
 
-- Photo bytes live only for the recognition request and are not written to disk or browser history by this app.
+- Photo bytes live only for recognition and hashing during the request and are not retained in the scan cache, written to disk, or added to browser history.
 - Azure OpenAI receives photos only when live AI mode is selected.
 - Edamam receives ingredient names and selected restrictions only when real-recipe mode is selected.
-- The browser stores an anonymous usage ID, preferences, source bookmarks, and input-only history.
+- The browser stores an anonymous usage ID, corrected Kitchen Memory, preferences, source bookmarks, and recent search/result IDs.
 - Users can clear all local PLATE data from **Privacy & data**.
 
 This implementation behavior is not a substitute for a reviewed privacy policy, retention agreement, consent copy, or provider data-processing terms.
@@ -216,6 +227,7 @@ The backend tests cover strict HTTPS recipe sourcing, ingredient aliases, missin
 
 - `GET /api/status` — AI and recipe-provider status
 - `GET /api/usage` — current anonymous daily allowance
+- `POST /api/usage/reset` — resets the current browser's counters only when explicitly enabled for local testing
 - `POST /api/ingredients/analyze` — multipart form with one to six `photos`
 - `POST /api/recipes/generate` — searches sourced recipes using corrected ingredients, restrictions, time, and servings
 - `POST /api/grocery/deliveroo/basket` — prepares only the selected recipe's missing ingredients for the supported grocery handoff

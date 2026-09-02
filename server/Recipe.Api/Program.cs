@@ -9,12 +9,15 @@ builder.Services.Configure<FoodAiOptions>(builder.Configuration.GetSection(FoodA
 builder.Services.Configure<RecipeCatalogOptions>(builder.Configuration.GetSection(RecipeCatalogOptions.SectionName));
 builder.Services.Configure<UsageControlOptions>(builder.Configuration.GetSection(UsageControlOptions.SectionName));
 var recipeCacheMaxEntries = builder.Configuration.GetValue<int?>("RecipeCatalog:Cache:MaxEntries") ?? 500;
-builder.Services.AddMemoryCache(options => options.SizeLimit = Math.Clamp(recipeCacheMaxEntries, 10, 5000));
+var scanCacheMaxEntries = builder.Configuration.GetValue<int?>("FoodAi:ScanCache:MaxEntries") ?? 500;
+builder.Services.AddMemoryCache(options =>
+    options.SizeLimit = Math.Clamp(recipeCacheMaxEntries + scanCacheMaxEntries, 20, 10000));
 builder.Services.AddSingleton<DemoFoodAiService>();
 builder.Services.AddSingleton<RecipeSafetyValidator>();
 builder.Services.AddSingleton<IngredientNormalizer>();
 builder.Services.AddSingleton<RecipeRankingService>();
 builder.Services.AddSingleton<RecipeSearchCache>();
+builder.Services.AddSingleton<IngredientScanCache>();
 builder.Services.AddSingleton<IGroceryBasketService, DeliverooBasketService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<AiUsageGuard>();

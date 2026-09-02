@@ -58,7 +58,10 @@ public sealed class RecipeCatalogService(
         GenerateRecipesRequest request) =>
         response with
         {
-            Recipes = ranking.Rank(response.Recipes, request.Ingredients).Take(3).ToList()
+            Recipes = ranking
+                .Rank(response.Recipes, request.Ingredients, request.RecentlyShownRecipeIds)
+                .Take(3)
+                .ToList()
         };
 
     private static string AppendNotice(string? current, string message) =>

@@ -71,6 +71,37 @@ public sealed class RecipeRankingServiceTests
     }
 
     [Fact]
+    public void Top_pick_always_has_the_fewest_missing_items_when_available()
+    {
+        var service = new RecipeRankingService(_normalizer);
+        var exact = Recipe("Provider-favourite omelette", "egg");
+        var oneMissing = Recipe("Spinach omelette", "egg", "spinach");
+        var twoMissing = Recipe("Feta spinach omelette", "egg", "spinach", "feta");
+
+        var ranked = service.Rank(
+            [exact, twoMissing, oneMissing],
+            [new IngredientInput("egg", "4")]);
+
+        Assert.Equal(oneMissing.Id, ranked[0].Id);
+        Assert.Single(ranked[0].MissingIngredients!);
+    }
+
+    [Fact]
+    public void Top_pick_diversifies_between_equally_close_matches()
+    {
+        var service = new RecipeRankingService(_normalizer);
+        var seen = Recipe("Spinach omelette", "egg", "spinach");
+        var fresh = Recipe("Mushroom omelette", "egg", "mushroom");
+
+        var ranked = service.Rank(
+            [seen, fresh],
+            [new IngredientInput("egg", "4")],
+            [seen.Id]);
+
+        Assert.Equal(fresh.Id, ranked[0].Id);
+    }
+
+    [Fact]
     public void Recipe_serializes_real_image_and_match_fields()
     {
         var service = new RecipeRankingService(_normalizer);

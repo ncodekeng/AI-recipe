@@ -26,6 +26,7 @@ public sealed class RecipesController(IRecipeCatalogService recipeCatalog, AiUsa
             request.Ingredients.Any(item => item.Name.Length > 100 || item.Quantity.Length > 80) ||
             request.Allergens.Count > 20 ||
             request.AvoidIngredients.Count > 20 ||
+            request.RecentlyShownRecipeIds.Count > 30 ||
             request.AvoidIngredients.Any(item => item.Length > 100))
         {
             return BadRequest(new ProblemDetails

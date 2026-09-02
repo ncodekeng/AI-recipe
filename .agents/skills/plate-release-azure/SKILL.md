@@ -21,9 +21,10 @@ Release the React client and ASP.NET Core API as one mobile-friendly public web 
 3. Keep Azure OpenAI and Edamam secrets outside Git. Use local ignored settings, App Service application settings, managed secret references, or user-secrets.
 4. Confirm Azure OpenAI is used for live photo recognition and Edamam is configured for sourced recipes. Never enable invented recipe fallback.
 5. Leave recipe caching disabled unless provider permission for the retained fields has been confirmed explicitly.
-6. Run `dotnet test AIRecipe.slnx --configuration Release`, `npm test --prefix client`, `npm run build --prefix client`, and `scripts/package-azure.ps1` before reporting readiness.
-7. Treat a green build as necessary but not sufficient: check `/api/status`, the public SPA route, a scan, provider failure messaging, source links, and the grocery handoff.
-8. When asked to commit, use a single-line message under seven words and do not add co-author metadata. Push only when the user explicitly requests it.
+6. Keep the private scan-result cache bounded and per client, and keep `UsageControl__AllowTestReset=false` in public environments.
+7. Run `dotnet test AIRecipe.slnx --configuration Release`, `npm test --prefix client`, `npm run build --prefix client`, and `scripts/package-azure.ps1` before reporting readiness.
+8. Treat a green build as necessary but not sufficient: check `/api/status`, the public SPA route, a scan, provider failure messaging, source links, and the grocery handoff.
+9. When asked to commit, use a single-line message under seven words and do not add co-author metadata. Push only when the user explicitly requests it.
 
 ## Report
 

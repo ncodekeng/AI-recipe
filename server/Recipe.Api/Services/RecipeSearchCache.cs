@@ -87,12 +87,17 @@ public sealed class RecipeSearchCache
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
+        var recentlyShownRecipeIds = request.RecentlyShownRecipeIds
+            .Distinct()
+            .Order()
+            .ToArray();
         var cacheIdentity = JsonSerializer.Serialize(new
         {
-            Version = 1,
+            Version = 2,
             Ingredients = ingredients,
             Allergens = allergens,
             AvoidIngredients = avoidIngredients,
+            RecentlyShownRecipeIds = recentlyShownRecipeIds,
             DietaryPreference = request.DietaryPreference.Trim().ToLowerInvariant(),
             request.MaxCookingMinutes,
             request.Servings

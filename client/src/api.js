@@ -71,6 +71,10 @@ export async function getUsage(signal) {
   return request('/api/usage', { signal }, 10_000)
 }
 
+export async function resetUsage() {
+  return request('/api/usage/reset', { method: 'POST' }, 10_000)
+}
+
 export async function analyzePhotos(files) {
   const form = new FormData()
   files.forEach((file) => form.append('photos', file))

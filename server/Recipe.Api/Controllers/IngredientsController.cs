@@ -6,7 +6,10 @@ namespace Recipe.Api.Controllers;
 
 [ApiController]
 [Route("api/ingredients")]
-public sealed class IngredientsController(IRecipeAiService recipeAi, AiUsageGuard usageGuard) : ControllerBase
+public sealed class IngredientsController(
+    IRecipeAiService recipeAi,
+    IngredientScanCache scanCache,
+    AiUsageGuard usageGuard) : ControllerBase
 {
     private const int MaxPhotoCount = 6;
     private const long MaxPhotoBytes = 5 * 1024 * 1024;
@@ -60,8 +63,19 @@ public sealed class IngredientsController(IRecipeAiService recipeAi, AiUsageGuar
                 content));
         }
 
+        var clientKey = ClientIdentity.Resolve(HttpContext);
+        if (scanCache.TryGet(clientKey, uploadedPhotos, out var cached) && cached is not null)
+        {
+            var cachedStatus = usageGuard.GetStatus(clientKey);
+            Response.Headers["X-Plate-Scans-Remaining"] = cachedStatus.ScansRemaining.ToString();
+            return Ok(cached with
+            {
+                Notice = AppendNotice(cached.Notice, "Loaded from your seven-day scan cache; Azure was not called.")
+            });
+        }
+
         var admission = usageGuard.TryAcquire(
-            ClientIdentity.Resolve(HttpContext),
+            clientKey,
             AiOperation.IngredientScan);
         if (!admission.Allowed)
         {
@@ -76,6 +90,11 @@ public sealed class IngredientsController(IRecipeAiService recipeAi, AiUsageGuar
         using var usageLease = admission.Lease!;
         Response.Headers["X-Plate-Scans-Remaining"] = admission.Status.ScansRemaining.ToString();
 
-        return Ok(await recipeAi.AnalyzeIngredientsAsync(uploadedPhotos, cancellationToken));
+        var result = await recipeAi.AnalyzeIngredientsAsync(uploadedPhotos, cancellationToken);
+        scanCache.Store(clientKey, uploadedPhotos, result);
+        return Ok(result);
     }
+
+    private static string AppendNotice(string? current, string message) =>
+        string.IsNullOrWhiteSpace(current) ? message : $"{current} {message}";
 }

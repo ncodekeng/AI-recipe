@@ -1,6 +1,6 @@
 # PLATE / AI Recipe Project Handoff
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
 
 This file is the portable context for continuing the project with a different Codex account. Read this file, `README.md`, and `git status` before changing anything. Do not discard existing uncommitted work.
 
@@ -55,8 +55,9 @@ The Mise prototype already includes:
 - Missing ingredient highlighting and publisher attribution
 - Deterministic server-side allergen/diet validation after every provider response
 - Azure OpenAI boundary with demo fallback
-- Per-browser quotas, concurrency control, an estimated global daily budget, and kill switch
-- Locally persisted preferences, recipe saves/bookmarks, and input-only history
+- Per-browser quotas, a development-only reset action, concurrency control, an estimated global daily budget, and kill switch
+- Locally persisted corrected Kitchen Memory, preferences, recipe saves/bookmarks, and recent search/result history
+- Per-browser seven-day Azure scan-result caching keyed by photo content without retaining photo bytes
 - Privacy/data controls, feedback submission, timeouts, retry/empty/error states
 - Irrelevant-photo reporting and experimental frozen-meal classification in Azure mode
 - Mobile-first React UI
@@ -187,7 +188,8 @@ The user must never go directly from uncertain image recognition to recipes with
 - Done locally: credential-free demo and Azure multimodal recognition with confidence, quantity, manual edit/add/remove, empty-result guidance, ignored-photo reporting, and experimental frozen-meal classification.
 - Done locally: structured allergens, custom avoid list, diet, servings, and maximum time.
 - Done locally: real-recipe provider boundary, generated fallback boundary, deterministic safety validation, missing ingredient UI, source links, and required Edamam attribution.
-- Done locally: saved generated recipes, sourced bookmarks, input-only recent history, feedback API/UI, timeouts and failure states.
+- Done locally: persistent browser Kitchen Memory, sourced bookmarks, recent search/result history, basic repeat-result diversification, feedback API/UI, timeouts and failure states.
+- Done locally: private seven-day Azure scan-result caching; identical photos from the same browser skip Azure and do not consume another scan allowance while the single server process remains alive.
 - Done locally for a single instance: daily limits, one active request, estimated budget cutoff, kill switch, and usage display.
 - Done locally: clear prototype data-handling copy and browser-data deletion.
 - Still required for public MVP: Base44/auth decision, cross-device account persistence, shared durable quota/idempotency store, bot/gateway controls, actual cost telemetry, durable feedback/log sink, staging provider verification, and reviewed privacy/legal copy.

@@ -55,6 +55,21 @@ public sealed class RecipeSearchCacheTests
         Assert.False(cache.TryGet(Request(["lamb"], ["Milk"]), out _));
     }
 
+    [Fact]
+    public void Cache_does_not_cross_different_recent_recipe_history()
+    {
+        var cache = CreateCache(new RecipeCacheOptions
+        {
+            Enabled = true,
+            ProviderPermissionConfirmed = true
+        });
+        var original = Request(["lamb"]);
+        original.RecentlyShownRecipeIds.Add(Guid.NewGuid());
+        cache.Store(original, Response());
+
+        Assert.False(cache.TryGet(Request(["lamb"]), out _));
+    }
+
     private static RecipeSearchCache CreateCache(RecipeCacheOptions cacheOptions)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions

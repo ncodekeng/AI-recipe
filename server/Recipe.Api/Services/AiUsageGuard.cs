@@ -107,6 +107,17 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
         }
     }
 
+    public UsageStatusResponse ResetClient(string clientKey)
+    {
+        lock (_sync)
+        {
+            ResetIfNeeded();
+            _usage.Remove(clientKey);
+            _activeClients.Remove(clientKey);
+            return CreateStatus(GetOrCreateUsage(clientKey));
+        }
+    }
+
     private UsageAdmission Allow(
         string clientKey,
         ClientUsage usage,
@@ -171,7 +182,8 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
             Math.Max(0, scanLimit - usage.Scans),
             usage.Recipes,
             recipeLimit,
-            Math.Max(0, recipeLimit - usage.Recipes));
+            Math.Max(0, recipeLimit - usage.Recipes),
+            _options.AllowTestReset);
     }
 
     private DateTimeOffset NextResetUtc() =>

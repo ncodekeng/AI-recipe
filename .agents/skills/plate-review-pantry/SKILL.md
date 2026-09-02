@@ -19,7 +19,7 @@ Make the corrected pantry and current preferences the only source of truth for a
 2. Send only the latest non-empty ingredient names and quantities to the API.
 3. Preserve all fourteen supported UK allergen selections, custom avoided ingredients, diet, maximum cooking time, and servings.
 4. Invalidate stale recipe results whenever an ingredient or safety-relevant preference changes.
-5. Persist preferences in the existing browser store, but never persist uploaded photo bytes.
+5. Persist the corrected ingredient list as browser-local Kitchen Memory alongside preferences, but never persist uploaded photo bytes. Merge a new scan by visible ingredient name and let the user remove stale items.
 6. Treat model/provider filters as hints. Keep deterministic server-side allergen, diet, and avoid-list validation as the safety boundary.
 7. Use “halal-style” and “kosher-style” wording unless verified certification and preparation guarantees exist.
 8. Do not claim the app can guarantee safety from substitutions, labels, manufacturing, or cross-contamination.

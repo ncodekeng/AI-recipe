@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { analyzePhotos, createDeliverooBasket, generateRecipes, getStatus, getUsage, submitFeedback } from './api.js'
-import { clearLocalData, loadPreferences, savePreferences } from './storage.js'
+import { analyzePhotos, createDeliverooBasket, generateRecipes, getStatus, getUsage, resetUsage, submitFeedback } from './api.js'
+import {
+  clearLocalData,
+  loadKitchenMemory,
+  loadPreferences,
+  mergeKitchenMemory,
+  saveKitchenMemory,
+  savePreferences,
+} from './storage.js'
 import RecipeHeroImage from './RecipeHeroImage.jsx'
 import {
   buildGroceryBasketPayload,
@@ -11,6 +18,7 @@ import {
 import {
   addHistoryEntry,
   clearLibrary,
+  getRecentlyShownRecipeIds,
   loadHistory,
   loadSavedRecipes,
   removeSavedRecipe,
@@ -56,6 +64,7 @@ const DEFAULT_PREFERENCES = {
   showRecipePhotos: true,
 }
 const INITIAL_PREFERENCES = { ...DEFAULT_PREFERENCES, ...loadPreferences() }
+const INITIAL_KITCHEN_MEMORY = loadKitchenMemory()
 const INITIAL_SAVED_RECIPES = loadSavedRecipes()
 const INITIAL_HISTORY = loadHistory()
 const DEFAULT_SAFETY_NOTE = 'No known conflicts were found from the listed ingredients. Always verify product labels, substitutions, and cross-contamination warnings.'
@@ -140,7 +149,7 @@ function PrivacyModal({ onClose, onClear }) {
         <div className="privacy-points">
           <p><strong>Photos are temporary.</strong> They are sent to the API for recognition, held in memory while the request runs, and not saved by this app.</p>
           <p><strong>Cloud processing can apply.</strong> In live mode, photos are processed by the configured Azure OpenAI resource. Recipe searches can send ingredient names and selected restrictions to Edamam.</p>
-          <p><strong>Only preferences stay here.</strong> This browser stores an anonymous usage ID plus your diet, allergen, time, serving, and avoidance settings. No recipe results are cached.</p>
+          <p><strong>Your Kitchen Memory stays in this browser.</strong> The corrected ingredient list, preferences, anonymous usage ID, bookmarks, and recent searches are stored locally. Uploaded photo bytes are never stored.</p>
         </div>
         <button className="secondary-button danger" type="button" onClick={onClear}>Clear this browser's data</button>
       </article>
@@ -726,7 +735,7 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
 
 export default function App() {
   const [photos, setPhotos] = useState([])
-  const [ingredients, setIngredients] = useState([])
+  const [ingredients, setIngredients] = useState(INITIAL_KITCHEN_MEMORY)
   const [allergens, setAllergens] = useState(() => Array.isArray(INITIAL_PREFERENCES.allergens)
     ? INITIAL_PREFERENCES.allergens.filter((item) => ALLERGENS.includes(item))
     : [])
@@ -750,7 +759,9 @@ export default function App() {
   const [safetyNote, setSafetyNote] = useState('')
   const [provider, setProvider] = useState('Checking…')
   const [usage, setUsage] = useState(null)
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState(() => INITIAL_KITCHEN_MEMORY.length
+    ? `Loaded ${INITIAL_KITCHEN_MEMORY.length} ingredient${INITIAL_KITCHEN_MEMORY.length === 1 ? '' : 's'} from your Kitchen Memory.`
+    : '')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [showPrivacy, setShowPrivacy] = useState(false)
@@ -813,7 +824,6 @@ export default function App() {
       return { id: crypto.randomUUID(), file, url }
     })
     setPhotos((current) => [...current, ...additions])
-    setIngredients([])
     setRecipes([])
   }
 
@@ -826,8 +836,15 @@ export default function App() {
       }
       return current.filter((photo) => photo.id !== id)
     })
-    setIngredients([])
     setRecipes([])
+  }
+
+  function updateKitchenMemory(updater) {
+    setIngredients((current) => {
+      const next = typeof updater === 'function' ? updater(current) : updater
+      saveKitchenMemory(next)
+      return next
+    })
   }
 
   async function handleAnalyze() {
@@ -842,12 +859,14 @@ export default function App() {
         setError('No clear food items were found. Try a brighter, closer photo of the shelves or worktop.')
         return
       }
-      setIngredients(result.ingredients)
+      const rememberedIngredients = mergeKitchenMemory(ingredients, result.ingredients)
+      updateKitchenMemory(rememberedIngredients)
       setProvider(result.provider)
       const ignoredNotice = result.ignoredPhotos?.length
         ? `${result.ignoredPhotos.length} photo${result.ignoredPhotos.length === 1 ? ' was' : 's were'} ignored because no clear food was found.`
         : ''
-      setNotice([result.notice, ignoredNotice].filter(Boolean).join(' '))
+      const memoryNotice = `${rememberedIngredients.length} ingredient${rememberedIngredients.length === 1 ? '' : 's'} saved in Kitchen Memory.`
+      setNotice([result.notice, ignoredNotice, memoryNotice].filter(Boolean).join(' '))
       setRecipes([])
       requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (requestError) {
@@ -859,12 +878,12 @@ export default function App() {
   }
 
   function updateIngredient(id, field, value) {
-    setIngredients((current) => current.map((item) => item.id === id ? { ...item, [field]: value } : item))
+    updateKitchenMemory((current) => current.map((item) => item.id === id ? { ...item, [field]: value } : item))
     setRecipes([])
   }
 
   function addIngredient() {
-    setIngredients((current) => [
+    updateKitchenMemory((current) => [
       ...current,
       { id: crypto.randomUUID(), name: '', quantity: 'as needed', confidence: 0, sourceImage: 'Added manually' },
     ])
@@ -892,6 +911,7 @@ export default function App() {
         dietaryPreference,
         maxCookingMinutes: Number(maxCookingMinutes),
         servings: Number(servings),
+        recentlyShownRecipeIds: getRecentlyShownRecipeIds(history),
       }
       const result = await generateRecipes(request)
       setRecipes(result.recipes)
@@ -912,6 +932,17 @@ export default function App() {
     setSavedRecipes((current) => toggleSavedRecipe(current, recipe))
   }
 
+  async function handleResetUsage() {
+    try {
+      const nextUsage = await resetUsage()
+      setUsage(nextUsage)
+      setError('')
+      setNotice('Your local test allowance has been reset.')
+    } catch (requestError) {
+      setError(requestError.message)
+    }
+  }
+
   function restoreHistory(entry) {
     const restoredIngredients = Array.isArray(entry.ingredients)
       ? entry.ingredients
@@ -930,7 +961,7 @@ export default function App() {
     photoUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     photoUrlsRef.current.clear()
     setPhotos([])
-    setIngredients(restoredIngredients)
+    updateKitchenMemory(restoredIngredients)
     setAllergens(Array.isArray(entry.allergens) ? entry.allergens.filter((item) => ALLERGENS.includes(item)) : [])
     setAvoidText(Array.isArray(entry.avoidIngredients) ? entry.avoidIngredients.join(', ').slice(0, 220) : '')
     setDietaryPreference(DIETARY_OPTIONS.includes(entry.dietaryPreference) ? entry.dietaryPreference : 'Anything')
@@ -1017,12 +1048,12 @@ export default function App() {
                 <div className="work-card ingredient-card">
                   <div className="mini-heading">
                     <span><Icon name="edit" size={19} /></span>
-                    <div><h3>Your ingredients</h3><p>Edit anything that doesn’t look right.</p></div>
+                    <div><h3>Your Kitchen Memory</h3><p>Edit anything that doesn’t look right. Changes are saved on this browser.</p></div>
                   </div>
                   <IngredientEditor
                     ingredients={ingredients}
                     onChange={updateIngredient}
-                    onRemove={(id) => { setIngredients((current) => current.filter((item) => item.id !== id)); setRecipes([]) }}
+                    onRemove={(id) => { updateKitchenMemory((current) => current.filter((item) => item.id !== id)); setRecipes([]) }}
                     onAdd={addIngredient}
                   />
                 </div>
@@ -1093,7 +1124,12 @@ export default function App() {
                 <button className="primary-button large" type="button" disabled={!validIngredients.length || Boolean(busy)} onClick={handleGenerate}>
                   {busy === 'generating' ? <><span className="spinner" /> Finding recipes you can almost make…</> : <>Find real recipes <Icon name="arrow" size={19} /></>}
                 </button>
-                {usage && <span className="usage-note">{usage.recipesRemaining} of {usage.recipeLimit} free recipe searches left today</span>}
+                {usage && (
+                  <span className="usage-note">
+                    {usage.recipesRemaining} of {usage.recipeLimit} free recipe searches left today
+                    {usage.canReset && <button type="button" disabled={Boolean(busy)} onClick={handleResetUsage}>Reset test uses</button>}
+                  </span>
+                )}
               </div>
             </section>
           )}

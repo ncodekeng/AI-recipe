@@ -44,9 +44,11 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
 
     public IReadOnlyList<RecipeSuggestion> Rank(
         IEnumerable<RecipeSuggestion> recipes,
-        IEnumerable<IngredientInput> pantry)
+        IEnumerable<IngredientInput> pantry,
+        IEnumerable<Guid>? recentlyShownRecipeIds = null)
     {
-        return recipes
+        var recentIds = recentlyShownRecipeIds?.ToHashSet() ?? [];
+        var ranked = recipes
             .Select((recipe, providerIndex) =>
             {
                 var match = CalculateMatch(pantry, recipe.Ingredients);
@@ -58,14 +60,39 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
                     RequiredIngredientCount = match.RequiredIngredientCount,
                     AvailableIngredientCount = match.AvailableIngredientCount
                 };
-                return new RankedRecipe(enriched, Score(enriched, providerIndex));
+                return new RankedRecipe(
+                    enriched,
+                    Score(enriched, providerIndex) - (recentIds.Contains(enriched.Id) ? 35 : 0),
+                    recentIds.Contains(enriched.Id));
             })
             .OrderByDescending(item => item.Score)
             .ThenBy(item => item.Recipe.MissingIngredients?.Count ?? int.MaxValue)
             .ThenByDescending(item => item.Recipe.IngredientMatch)
+            .ToList();
+
+        var purchasable = ranked
+            .Where(item => MissingCount(item.Recipe) > 0)
+            .ToList();
+        if (purchasable.Count == 0)
+        {
+            return ranked.Select(item => item.Recipe).ToList();
+        }
+
+        var fewestMissing = purchasable.Min(item => MissingCount(item.Recipe));
+        var topPick = purchasable
+            .Where(item => MissingCount(item.Recipe) == fewestMissing)
+            .OrderBy(item => item.WasRecentlyShown)
+            .ThenByDescending(item => item.Score)
+            .First();
+
+        return new[] { topPick }
+            .Concat(ranked.Where(item => item.Recipe.Id != topPick.Recipe.Id))
             .Select(item => item.Recipe)
             .ToList();
     }
+
+    private static int MissingCount(RecipeSuggestion recipe) =>
+        recipe.MissingIngredients?.Count ?? recipe.RequiredIngredientCount;
 
     private static double Score(RecipeSuggestion recipe, int providerIndex)
     {
@@ -86,5 +113,5 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
                usefulComplexity - excessComplexityPenalty;
     }
 
-    private sealed record RankedRecipe(RecipeSuggestion Recipe, double Score);
+    private sealed record RankedRecipe(RecipeSuggestion Recipe, double Score, bool WasRecentlyShown);
 }
