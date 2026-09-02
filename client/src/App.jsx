@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { analyzePhotos, generateRecipes, getStatus, getUsage, submitFeedback } from './api.js'
 import { clearLocalData, loadPreferences, savePreferences } from './storage.js'
+import RecipeHeroImage from './RecipeHeroImage.jsx'
+import { getRecipeArtwork } from './recipeArtwork.js'
 import {
   addHistoryEntry,
   clearLibrary,
@@ -51,12 +53,6 @@ const INITIAL_PREFERENCES = { ...DEFAULT_PREFERENCES, ...loadPreferences() }
 const INITIAL_SAVED_RECIPES = loadSavedRecipes()
 const INITIAL_HISTORY = loadHistory()
 const DEFAULT_SAFETY_NOTE = 'No known conflicts were found from the listed ingredients. Always verify product labels, substitutions, and cross-contamination warnings.'
-
-const RECIPE_EMOJI = {
-  coral: ['🍅', '🌿', '🍳'],
-  saffron: ['🥕', '🫑', '✨'],
-  sage: ['🥬', '🍋', '🥣'],
-}
 
 function Icon({ name, size = 20, strokeWidth = 1.8 }) {
   const paths = {
@@ -466,19 +462,15 @@ function AllergenPicker({ selected, onToggle }) {
 }
 
 function RecipeCard({ recipe, onOpen, onSave, saved }) {
-  const emoji = RECIPE_EMOJI[recipe.accent] || RECIPE_EMOJI.coral
   const missingCount = recipe.missingIngredients?.length || 0
   return (
     <article className="recipe-card">
-      <div className={`recipe-art ${recipe.accent} ${recipe.imageUrl ? 'has-image' : ''}`}>
-        {recipe.imageUrl
-          ? <img src={recipe.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
-          : <><span>{emoji[0]}</span><span>{emoji[1]}</span><span>{emoji[2]}</span></>}
+      <RecipeHeroImage recipe={recipe}>
         <button className={`save-button ${saved ? 'saved' : ''}`} type="button" aria-label={`${saved ? 'Remove' : 'Save'} ${recipe.title}`} onClick={() => onSave(recipe)}>
           <Icon name="bookmark" size={17} />
         </button>
         <div className="match-badge">{recipe.ingredientMatch}% match</div>
-      </div>
+      </RecipeHeroImage>
       <div className="recipe-card-body">
         <div className="recipe-tags">
           {recipe.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
@@ -519,7 +511,7 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved }) {
     }
   }, [onClose])
 
-  const emoji = RECIPE_EMOJI[recipe.accent] || RECIPE_EMOJI.coral
+  const artwork = getRecipeArtwork(recipe)
   const missing = new Set((recipe.missingIngredients || []).map((item) => item.toLowerCase()))
   const isSourced = Boolean(recipe.sourceUrl)
   return (
@@ -533,8 +525,8 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved }) {
         <button className={`modal-save ${saved ? 'saved' : ''}`} type="button" onClick={() => onSave(recipe)}>
           <Icon name="bookmark" size={16} /> {saved ? 'Saved' : 'Save'}
         </button>
-        <div className={`modal-hero ${recipe.accent}`}>
-          <div className="modal-emoji">{emoji.join(' ')}</div>
+        <div className="modal-hero" data-art-theme={artwork.theme}>
+          <div className="modal-emoji" aria-hidden="true">{artwork.ingredients.map((item) => item.icon).join(' ')}</div>
           <span>{recipe.cuisine}</span>
           <h2 id="recipe-title">{recipe.title}</h2>
           <div className="modal-meta">

@@ -10,7 +10,8 @@ This repository is the independently built, mobile-first implementation referenc
 - Required ingredient review with edit, add, remove, and quantity correction
 - Fourteen UK allergens, custom avoided ingredients, diet, time, and serving settings
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
-- Optional Edamam search for real, attributed web recipes with publisher links
+- Optional Edamam search for real, attributed web recipes with publisher links and provider imagery
+- Recipe-specific generated artwork derived from the title and primary ingredients, with deterministic visual fallbacks when no image exists or a remote image fails
 - Visible owned/missing ingredient matching and source-aware recipe details
 - Lightweight source bookmarks, generated-recipe saves, and input-only recent history in browser storage
 - Feedback API and UI, request timeouts, friendly error/empty states, daily quotas, one-active-request enforcement, a global estimated budget cutoff, and an AI kill switch
@@ -124,12 +125,13 @@ This implementation behavior is not a substitute for a reviewed privacy policy, 
 ```powershell
 dotnet build AIRecipe.slnx
 cd client
+npm test
 npm run build
 cd ..
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
 ```
 
-The smoke suite checks image upload, recipe generation, allergen and custom-avoid filtering, usage tracking, quota enforcement, and feedback rate limiting. Edamam requires client-owned credentials and should also be exercised in staging before release.
+The frontend tests check recipe-specific visual selection and deterministic fallbacks. The smoke suite checks image upload, recipe generation, allergen and custom-avoid filtering, usage tracking, quota enforcement, and feedback rate limiting. Edamam requires client-owned credentials and should also be exercised in staging before release.
 
 ## API endpoints
 
