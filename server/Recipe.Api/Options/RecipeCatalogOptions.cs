@@ -5,6 +5,7 @@ public sealed class RecipeCatalogOptions
     public const string SectionName = "RecipeCatalog";
 
     public EdamamOptions Edamam { get; init; } = new();
+    public RecipeCacheOptions Cache { get; init; } = new();
 }
 
 public sealed class EdamamOptions
@@ -15,4 +16,14 @@ public sealed class EdamamOptions
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(AppId) &&
         !string.IsNullOrWhiteSpace(AppKey);
+}
+
+public sealed class RecipeCacheOptions
+{
+    public bool Enabled { get; init; }
+    public bool ProviderPermissionConfirmed { get; init; }
+    public int DurationHours { get; init; } = 168;
+    public int MaxEntries { get; init; } = 500;
+
+    public bool CanStoreProviderData => Enabled && ProviderPermissionConfirmed;
 }

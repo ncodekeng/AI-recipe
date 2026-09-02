@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Recipe.Api.Models;
 using Recipe.Api.Options;
@@ -12,10 +13,16 @@ public sealed class RecipeCatalogServiceTests
     {
         var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions());
         var normalizer = new IngredientNormalizer();
+        var cache = new RecipeSearchCache(
+            new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 }),
+            normalizer,
+            options,
+            NullLogger<RecipeSearchCache>.Instance);
         var service = new RecipeCatalogService(
             new EdamamRecipeClient(new HttpClient { BaseAddress = new Uri("https://api.edamam.com/") }, options),
             new RecipeSafetyValidator(),
             new RecipeRankingService(normalizer),
+            cache,
             options,
             NullLogger<RecipeCatalogService>.Instance);
 

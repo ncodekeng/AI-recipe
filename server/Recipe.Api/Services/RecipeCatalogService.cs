@@ -8,6 +8,7 @@ public sealed class RecipeCatalogService(
     EdamamRecipeClient edamam,
     RecipeSafetyValidator safetyValidator,
     RecipeRankingService ranking,
+    RecipeSearchCache cache,
     IOptions<RecipeCatalogOptions> options,
     ILogger<RecipeCatalogService> logger) : IRecipeCatalogService
 {
@@ -23,11 +24,21 @@ public sealed class RecipeCatalogService(
                 "Real recipe search requires Edamam credentials. PLATE will not invent a replacement recipe.");
         }
 
+        if (cache.TryGet(request, out var cachedResponse) && cachedResponse is not null)
+        {
+            return cachedResponse with
+            {
+                Notice = AppendNotice(cachedResponse.Notice, "Loaded from the short-term recipe cache.")
+            };
+        }
+
         try
         {
             var response = await edamam.FindRecipesAsync(request, cancellationToken);
             var safeResponse = safetyValidator.Validate(response, request);
-            return RankAndLimit(safeResponse, request);
+            var result = RankAndLimit(safeResponse, request);
+            cache.Store(request, result);
+            return result;
         }
         catch (RecipeSafetyException)
         {
@@ -49,6 +60,9 @@ public sealed class RecipeCatalogService(
         {
             Recipes = ranking.Rank(response.Recipes, request.Ingredients).Take(3).ToList()
         };
+
+    private static string AppendNotice(string? current, string message) =>
+        string.IsNullOrWhiteSpace(current) ? message : $"{current} {message}";
 }
 
 public sealed class RecipeCatalogException(string message, Exception? innerException = null)

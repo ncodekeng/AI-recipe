@@ -12,6 +12,7 @@ This repository is the independently built, mobile-first implementation referenc
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
 - Edamam search for real, attributed web recipes with publisher links and provider imagery
 - Backend ingredient normalization, meaningful pantry-staple handling, near-match scoring, and provider-aware ranking
+- A license-gated seven-day recipe-result cache keyed by normalized ingredients and every safety preference
 - Recipe-specific built-in artwork derived from the title and primary ingredients, used only as a visual fallback when no remote image exists or one fails
 - A persisted Show recipe photos switch that prevents remote image requests when disabled
 - Visible owned/missing ingredient matching, a primary Top Pick, and source-aware recipe details
@@ -136,7 +137,22 @@ dotnet run --project server/Recipe.Api
 - Never ask Azure OpenAI, the demo provider, or another language model to invent or complete a recipe.
 - If credentials are missing, Edamam is unavailable, or no safe result is found, show the error and ask the user to retry. Never substitute a made-up recipe.
 
-Sourced saves retain only a small local bookmark (title, publisher, and source URL); the app does not cache the third-party recipe body or image.
+Sourced saves retain only a small local bookmark (title, publisher, and source URL). With the default cache-disabled configuration, the app does not retain the third-party recipe body or image.
+
+### Seven-day recipe cache
+
+The cache saves Edamam calls, not Azure tokens: Azure is used only for ingredient recognition, while Edamam performs recipe search. The implementation uses a safety-aware key containing normalized ingredient names, allergens, avoided ingredients, diet, cooking time, and servings. It holds up to 500 search results in server memory for 168 hours, so a process restart or Azure App Service recycle clears it.
+
+Caching is disabled by default because Edamam prohibits storing full recipe results unless the applicable contract explicitly grants that right. Do not enable it for the free plan or merely because a paid plan mentions limited caching; this implementation retains structured recipe ingredients and therefore requires permission covering all cached fields and the way PLATE serves them. After receiving and recording that permission, enable both gates:
+
+```powershell
+$env:RecipeCatalog__Cache__Enabled = 'true'
+$env:RecipeCatalog__Cache__ProviderPermissionConfirmed = 'true'
+$env:RecipeCatalog__Cache__DurationHours = '168'
+$env:RecipeCatalog__Cache__MaxEntries = '500'
+```
+
+Setting `Enabled=true` without the permission confirmation does not store anything and writes a warning. A future multi-instance deployment needs an approved shared cache; the current in-memory cache is intentionally suitable only for the single-instance prototype.
 
 ## Deliveroo grocery handoff
 
