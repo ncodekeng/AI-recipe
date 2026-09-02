@@ -1,6 +1,6 @@
 # PLATE / Mise recipe prototype
 
-This repository is the independently built, mobile-first implementation reference for PLATE. The current interface is branded **Mise** until the transferred Base44 project and client brand assets can be inspected. It turns kitchen photos into an editable ingredient list, applies dietary restrictions, and finds or generates recipe options through a reusable ASP.NET Core API.
+This repository is the independently built, mobile-first implementation reference for PLATE. The current interface is branded **Mise** until the transferred Base44 project and client brand assets can be inspected. It turns kitchen photos into an editable ingredient list, applies dietary restrictions, and finds sourced online recipes through a reusable ASP.NET Core API.
 
 ## What works now
 
@@ -10,13 +10,13 @@ This repository is the independently built, mobile-first implementation referenc
 - Required ingredient review with edit, add, remove, and quantity correction
 - Fourteen UK allergens, custom avoided ingredients, diet, time, and serving settings
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
-- Optional Edamam search for real, attributed web recipes with publisher links and provider imagery
+- Edamam search for real, attributed web recipes with publisher links and provider imagery
 - Backend ingredient normalization, meaningful pantry-staple handling, near-match scoring, and provider-aware ranking
-- Recipe-specific generated artwork derived from the title and primary ingredients, with deterministic visual fallbacks when no image exists or a remote image fails
+- Recipe-specific built-in artwork derived from the title and primary ingredients, used only as a visual fallback when no remote image exists or one fails
 - A persisted Show recipe photos switch that prevents remote image requests when disabled
 - Visible owned/missing ingredient matching, a primary Top Pick, and source-aware recipe details
 - An isolated Deliveroo grocery-basket contract with an honest manual handoff until partner basket access is approved
-- Lightweight source bookmarks, generated-recipe saves, and input-only recent history in browser storage
+- Lightweight source bookmarks and input-only recent history in browser storage
 - Feedback API and UI, request timeouts, friendly error/empty states, daily quotas, one-active-request enforcement, a global estimated budget cutoff, and an AI kill switch
 - One responsive React/Vite client and ASP.NET Core .NET 10 API, packaged as a single production container
 
@@ -29,8 +29,7 @@ React mobile web client
       │   ├─ Azure OpenAI vision
       │   └─ deterministic demo provider
       ├─ recipe catalogue
-      │   ├─ Edamam real-recipe search
-      │   └─ Azure/demo generated fallback when explicitly selected
+      │   └─ Edamam sourced online-recipe search only
       ├─ deterministic dietary safety validator
       └─ usage, budget, and feedback controls
 ```
@@ -55,7 +54,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. The API runs at `http://localhost:5050`, and Vite proxies `/api` to it. Demo mode needs no `.env` file or cloud account.
+Open `http://localhost:5173`. The API runs at `http://localhost:5050`, and Vite proxies `/api` to it. Ingredient scanning can run in credential-free demo mode, but recipe search requires Edamam credentials and returns a clear setup error without them.
 
 ## Production container
 
@@ -87,7 +86,7 @@ The script creates only these Azure resources:
 
 It refuses to reuse a plan that is not `F1`, which helps avoid accidentally deploying onto a paid SKU. F1 availability and quotas depend on the subscription and region; use `-Location` to choose another region if `uksouth` is unavailable.
 
-Without a private settings file, the public deployment starts in demo mode. To enable real Azure AI, copy the ignored settings template, replace every placeholder locally, and deploy again:
+Without a private settings file, the public deployment can demonstrate ingredient scanning but cannot return recipes. To enable Azure AI scanning and sourced online recipes, copy the ignored settings template, replace every placeholder locally, and deploy again:
 
 ```powershell
 Copy-Item azure/appsettings.production.example.json azure/appsettings.production.json
@@ -124,15 +123,19 @@ The integration uses Azure OpenAI's `/openai/v1/chat/completions` endpoint. Phot
 The primary production recipe path uses [Edamam Recipe Search](https://developer.edamam.com/edamam-recipe-api). Its web-recipe results provide ingredients, provider photography, and an original publisher URL; PLATE links out for the copyrighted cooking method and loads Edamam's required attribution badge. Results are normalized and ranked after the dietary safety check, so a useful provider-ranked recipe needing roughly one to three meaningful ingredients can beat a less useful complete match. Confirm the chosen commercial plan, caching rights, image rights, and attribution obligations before launch.
 
 ```powershell
-$env:RecipeCatalog__Provider = 'Edamam'
 $env:RecipeCatalog__Edamam__AppId = 'YOUR-APP-ID'
 $env:RecipeCatalog__Edamam__AppKey = 'YOUR-APP-KEY'
 dotnet run --project server/Recipe.Api
 ```
 
-Real-recipe mode fails clearly if credentials are missing or the provider is unavailable. It does not silently generate recipes. An explicit `RecipeCatalog__UseGeneratedFallback=true` opt-in is available for non-production demos.
+### Non-negotiable sourcing rule
 
-Sourced saves retain only a small local bookmark (title, publisher, and source URL); the app does not cache the third-party recipe body or image. Generated recipes can be saved in full in the current browser.
+- Display only recipes returned by the configured online catalogue.
+- Require every recipe to include a valid HTTPS link to its original publisher.
+- Never ask Azure OpenAI, the demo provider, or another language model to invent or complete a recipe.
+- If credentials are missing, Edamam is unavailable, or no safe result is found, show the error and ask the user to retry. Never substitute a made-up recipe.
+
+Sourced saves retain only a small local bookmark (title, publisher, and source URL); the app does not cache the third-party recipe body or image.
 
 ## Deliveroo grocery handoff
 
@@ -161,7 +164,7 @@ Feedback is written as structured application telemetry. Configure a durable pro
 - Photo bytes live only for the recognition request and are not written to disk or browser history by this app.
 - Azure OpenAI receives photos only when live AI mode is selected.
 - Edamam receives ingredient names and selected restrictions only when real-recipe mode is selected.
-- The browser stores an anonymous usage ID, preferences, source bookmarks/generated saves, and input-only history.
+- The browser stores an anonymous usage ID, preferences, source bookmarks, and input-only history.
 - Users can clear all local PLATE data from **Privacy & data**.
 
 This implementation behavior is not a substitute for a reviewed privacy policy, retention agreement, consent copy, or provider data-processing terms.
@@ -178,14 +181,14 @@ cd ..
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
 ```
 
-The backend tests cover ingredient aliases, missing-ingredient calculation, pantry basics, near-match ranking, provider image mapping/serialization, and the Deliveroo handoff. Frontend tests cover recipe-specific artwork, photo ON/OFF/failure decisions, preference persistence, missing-only basket payloads, and the zero-missing case. The smoke suite checks image upload, recipe generation, allergen and custom-avoid filtering, usage tracking, quota enforcement, and feedback rate limiting. Edamam requires client-owned credentials and should also be exercised in staging before release.
+The backend tests cover strict HTTPS recipe sourcing, ingredient aliases, missing-ingredient calculation, pantry basics, near-match ranking, provider image mapping/serialization, and the Deliveroo handoff. Frontend tests cover recipe-specific artwork, photo ON/OFF/failure decisions, preference persistence, missing-only basket payloads, and the zero-missing case. The credential-free smoke suite checks image upload, refusal to fabricate recipes, usage tracking, quota enforcement, grocery handoff, and feedback rate limiting. Edamam requires client-owned credentials and should also be exercised in staging before release.
 
 ## API endpoints
 
 - `GET /api/status` — AI and recipe-provider status
 - `GET /api/usage` — current anonymous daily allowance
 - `POST /api/ingredients/analyze` — multipart form with one to six `photos`
-- `POST /api/recipes/generate` — corrected ingredients, restrictions, time, and servings
+- `POST /api/recipes/generate` — searches sourced recipes using corrected ingredients, restrictions, time, and servings
 - `POST /api/grocery/deliveroo/basket` — prepares only the selected recipe's missing ingredients for the supported grocery handoff
 - `POST /api/feedback` — rating and optional short comment
 

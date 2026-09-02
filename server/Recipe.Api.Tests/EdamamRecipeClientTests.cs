@@ -43,7 +43,6 @@ public sealed class EdamamRecipeClientTests
         };
         var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions
         {
-            Provider = "Edamam",
             Edamam = new EdamamOptions { AppId = "test-id", AppKey = "test-key" }
         });
         var client = new EdamamRecipeClient(httpClient, options);

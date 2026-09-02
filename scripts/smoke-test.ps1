@@ -56,26 +56,22 @@ try {
         servings = 2
     } | ConvertTo-Json -Depth 5
 
-    $generated = Invoke-RestMethod `
-        -Uri 'http://localhost:5050/api/recipes/generate' `
-        -Method Post `
-        -Headers $clientHeaders `
-        -ContentType 'application/json' `
-        -Body $recipeBody
-
-    if ($generated.recipes.Count -ne 3) {
-        throw "Expected 3 recipes but received $($generated.recipes.Count)."
+    $recipeRefused = $false
+    try {
+        Invoke-RestMethod `
+            -Uri 'http://localhost:5050/api/recipes/generate' `
+            -Method Post `
+            -Headers $clientHeaders `
+            -ContentType 'application/json' `
+            -Body $recipeBody | Out-Null
+    }
+    catch {
+        $recipeStatusCode = [int]$_.Exception.Response.StatusCode
+        $recipeRefused = $recipeStatusCode -eq 503
     }
 
-    if ($generated.recipes | Where-Object { $null -eq $_.availableIngredients -or $null -eq $_.missingIngredients }) {
-        throw 'Recipe matching details were not returned.'
-    }
-
-    $forbidden = $generated.recipes.ingredients.name |
-        Where-Object { $_ -match 'egg|cheese|milk|cream|butter' }
-
-    if ($forbidden) {
-        throw "The allergen check failed: $($forbidden -join ', ')."
+    if (-not $recipeRefused) {
+        throw 'Recipe search did not clearly refuse to fabricate a recipe without online-provider credentials.'
     }
 
     $usage = Invoke-RestMethod `
@@ -86,34 +82,8 @@ try {
         throw "Usage tracking failed: scans=$($usage.scansUsed), recipes=$($usage.recipesUsed)."
     }
 
-    $avoidBody = @{
-        ingredients = @(
-            @{ name = 'Tomatoes'; quantity = '4' },
-            @{ name = 'Mushrooms'; quantity = '250 g' },
-            @{ name = 'Spinach'; quantity = '1 bag' }
-        )
-        allergens = @()
-        avoidIngredients = @('Tomatoes')
-        dietaryPreference = 'Anything'
-        maxCookingMinutes = 30
-        servings = 2
-    } | ConvertTo-Json -Depth 5
-
-    $avoidResult = Invoke-RestMethod `
-        -Uri 'http://localhost:5050/api/recipes/generate' `
-        -Method Post `
-        -Headers @{ 'X-Plate-Client-Id' = 'smoke-avoid-client-0001' } `
-        -ContentType 'application/json' `
-        -Body $avoidBody
-
-    $avoided = $avoidResult.recipes.ingredients.name |
-        Where-Object { $_ -match 'tomato' }
-    if ($avoided) {
-        throw 'A custom avoided ingredient passed the deterministic safety validator.'
-    }
-
     $basketBody = @{
-        recipeId = $generated.recipes[0].id
+        recipeId = [guid]::NewGuid()
         ingredients = @(
             @{ name = 'Garlic'; amount = '2 cloves'; quantity = 2; unit = 'clove' },
             @{ name = 'Feta cheese'; amount = '100 g'; quantity = 100; unit = 'g' }
@@ -159,12 +129,21 @@ try {
 
     $quotaHeaders = @{ 'X-Plate-Client-Id' = 'smoke-quota-client-0001' }
     1..3 | ForEach-Object {
-        Invoke-RestMethod `
-            -Uri 'http://localhost:5050/api/recipes/generate' `
-            -Method Post `
-            -Headers $quotaHeaders `
-            -ContentType 'application/json' `
-            -Body $recipeBody | Out-Null
+        try {
+            Invoke-RestMethod `
+                -Uri 'http://localhost:5050/api/recipes/generate' `
+                -Method Post `
+                -Headers $quotaHeaders `
+                -ContentType 'application/json' `
+                -Body $recipeBody | Out-Null
+            throw 'An unsourced recipe was returned during the quota check.'
+        }
+        catch {
+            $setupStatusCode = [int]$_.Exception.Response.StatusCode
+            if ($setupStatusCode -ne 503) {
+                throw
+            }
+        }
     }
 
     try {
@@ -187,10 +166,7 @@ try {
         Status = $status.status
         Provider = $status.aiProvider
         DetectedIngredients = $analysis.ingredients.Count
-        Recipes = $generated.recipes.Count
-        AllergyFilter = 'passed'
-        CustomAvoidFilter = 'passed'
-        RecipeMatching = 'passed'
+        RecipeSourcePolicy = 'passed'
         GroceryHandoff = 'passed'
         Feedback = 'passed'
         UsageQuota = 'passed'

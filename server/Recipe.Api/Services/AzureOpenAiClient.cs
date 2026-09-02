@@ -79,90 +79,6 @@ public sealed class AzureOpenAiClient(HttpClient httpClient, IOptions<FoodAiOpti
         return new IngredientAnalysisResponse(ingredients, "Azure OpenAI", IgnoredPhotos: ignoredPhotos);
     }
 
-    public async Task<RecipeGenerationResponse> GenerateRecipesAsync(
-        GenerateRecipesRequest request,
-        CancellationToken cancellationToken)
-    {
-        EnsureConfigured();
-
-        var prompt = $$"""
-            Create exactly 3 genuinely different recipes using as many supplied ingredients as sensible.
-
-            Available ingredients:
-            {{JsonSerializer.Serialize(request.Ingredients, JsonOptions)}}
-
-            Allergens to exclude absolutely (including derivatives and cross-recipe garnishes):
-            {{JsonSerializer.Serialize(request.Allergens, JsonOptions)}}
-
-            Other ingredients to avoid:
-            {{JsonSerializer.Serialize(request.AvoidIngredients, JsonOptions)}}
-
-            Dietary preference: {{request.DietaryPreference}}
-            Maximum cooking time: {{request.MaxCookingMinutes}} minutes
-            Servings: {{request.Servings}}
-
-            Return JSON only in this shape:
-            {
-              "recipes": [{
-                "title": "string",
-                "description": "one inviting sentence",
-                "cookingMinutes": 25,
-                "difficulty": "Easy",
-                "cuisine": "string",
-                "servings": 2,
-                "ingredientMatch": 90,
-                "tags": ["string"],
-                "ingredients": [{"amount": "string", "name": "string"}],
-                "steps": ["clear instruction"],
-                "accent": "coral"
-              }]
-            }
-            Use only coral, saffron, or sage for accent. Keep each recipe to 4-6 steps. Pantry staples may be added,
-            but they must obey every allergen and dietary constraint.
-            """;
-
-        var responseText = await CompleteJsonAsync(
-            "You are an inventive professional chef and strict food-allergy assistant. " +
-            "Allergen exclusions are absolute. Return valid JSON without markdown.",
-            [new { type = "text", text = prompt }],
-            3000,
-            cancellationToken);
-
-        var payload = JsonSerializer.Deserialize<RecipePayload>(CleanJson(responseText), JsonOptions)
-            ?? throw new InvalidOperationException("Azure OpenAI returned an empty recipe result.");
-
-        var recipes = payload.Recipes
-            .Where(recipe => !string.IsNullOrWhiteSpace(recipe.Title))
-            .Take(3)
-            .Select(recipe => new RecipeSuggestion(
-                Guid.NewGuid(),
-                recipe.Title.Trim(),
-                recipe.Description.Trim(),
-                Math.Clamp(recipe.CookingMinutes, 5, request.MaxCookingMinutes),
-                string.IsNullOrWhiteSpace(recipe.Difficulty) ? "Easy" : recipe.Difficulty.Trim(),
-                string.IsNullOrWhiteSpace(recipe.Cuisine) ? "Modern" : recipe.Cuisine.Trim(),
-                request.Servings,
-                Math.Clamp(recipe.IngredientMatch, 0, 100),
-                recipe.Tags.Where(tag => !string.IsNullOrWhiteSpace(tag)).Take(4).ToList(),
-                recipe.Ingredients
-                    .Where(item => !string.IsNullOrWhiteSpace(item.Name))
-                    .Select(item => new RecipeIngredient(item.Amount, item.Name))
-                    .ToList(),
-                recipe.Steps.Where(step => !string.IsNullOrWhiteSpace(step)).Take(8).ToList(),
-                recipe.Accent is "saffron" or "sage" ? recipe.Accent : "coral"))
-            .ToList();
-
-        if (recipes.Count == 0)
-        {
-            throw new InvalidOperationException("Azure OpenAI did not return any usable recipes.");
-        }
-
-        return new RecipeGenerationResponse(
-            recipes,
-            "Azure OpenAI",
-            "Always check every ingredient label and adapt the recipe with a qualified professional for severe allergies.");
-    }
-
     private async Task<string> CompleteJsonAsync(
         string systemMessage,
         IReadOnlyList<object> userContent,
@@ -276,22 +192,4 @@ public sealed class AzureOpenAiClient(HttpClient httpClient, IOptions<FoodAiOpti
         public string Kind { get; init; } = "Ingredient";
     }
 
-    private sealed class RecipePayload
-    {
-        public List<RecipeItem> Recipes { get; init; } = [];
-    }
-
-    private sealed class RecipeItem
-    {
-        public string Title { get; init; } = string.Empty;
-        public string Description { get; init; } = string.Empty;
-        public int CookingMinutes { get; init; }
-        public string Difficulty { get; init; } = string.Empty;
-        public string Cuisine { get; init; } = string.Empty;
-        public int IngredientMatch { get; init; }
-        public List<string> Tags { get; init; } = [];
-        public List<RecipeIngredient> Ingredients { get; init; } = [];
-        public List<string> Steps { get; init; } = [];
-        public string Accent { get; init; } = "coral";
-    }
 }

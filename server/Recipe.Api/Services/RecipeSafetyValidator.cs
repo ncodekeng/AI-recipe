@@ -15,7 +15,8 @@ public sealed class RecipeSafetyValidator
         {
             if (string.IsNullOrWhiteSpace(recipe.Title) ||
                 recipe.Ingredients.Count == 0 ||
-                (recipe.Steps.Count == 0 && string.IsNullOrWhiteSpace(recipe.SourceUrl)))
+                !Uri.TryCreate(recipe.SourceUrl, UriKind.Absolute, out var sourceUri) ||
+                sourceUri.Scheme != Uri.UriSchemeHttps)
             {
                 blockedCount++;
                 continue;
@@ -41,7 +42,7 @@ public sealed class RecipeSafetyValidator
         if (accepted.Count == 0)
         {
             throw new RecipeSafetyException(
-                "No recipe passed the selected safety checks. Review the restrictions or try different ingredients.");
+                "No sourced online recipe passed the selected safety checks. Review the restrictions or try different ingredients.");
         }
 
         const string safetyNote =

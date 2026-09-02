@@ -21,15 +21,12 @@ public sealed class StatusController(
             : "Demo";
 
         var catalog = catalogOptions.Value;
-        var useEdamam = catalog.Provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase);
-        var recipeProviderConfigured = !useEdamam || catalog.Edamam.IsConfigured;
-        var recipeProvider = useEdamam ? "Edamam" : "Generated";
 
         return Ok(new ServiceStatusResponse(
             "ok",
             provider,
             azureConfigured,
-            recipeProvider,
-            recipeProviderConfigured));
+            "Edamam",
+            catalog.Edamam.IsConfigured));
     }
 }

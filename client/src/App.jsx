@@ -1018,11 +1018,11 @@ export default function App() {
               </div>
 
               <div className="generate-bar">
-                <div><Icon name="sparkles" size={22} /><p><strong>Everything look right?</strong><span>We will find three suitable ideas.</span></p></div>
+                <div><Icon name="sparkles" size={22} /><p><strong>Everything look right?</strong><span>Only sourced online recipes. We never invent them.</span></p></div>
                 <button className="primary-button large" type="button" disabled={!validIngredients.length || Boolean(busy)} onClick={handleGenerate}>
                   {busy === 'generating' ? <><span className="spinner" /> Finding recipes you can almost make…</> : <>Find real recipes <Icon name="arrow" size={19} /></>}
                 </button>
-                {usage && <span className="usage-note">{usage.recipesRemaining} of {usage.recipeLimit} free generations left today</span>}
+                {usage && <span className="usage-note">{usage.recipesRemaining} of {usage.recipeLimit} free recipe searches left today</span>}
               </div>
             </section>
           )}

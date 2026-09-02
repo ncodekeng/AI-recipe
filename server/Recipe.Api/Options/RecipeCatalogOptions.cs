@@ -4,8 +4,6 @@ public sealed class RecipeCatalogOptions
 {
     public const string SectionName = "RecipeCatalog";
 
-    public string Provider { get; init; } = "Generated";
-    public bool UseGeneratedFallback { get; init; }
     public EdamamOptions Edamam { get; init; } = new();
 }
 
