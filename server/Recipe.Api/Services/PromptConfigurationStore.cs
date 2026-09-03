@@ -18,10 +18,10 @@ public static class AiPromptDefaults
 
     public const string RecipeRecommendation = """
         Recommend common, practical recipes that use the largest number of the user's available ingredients.
-        Put the best established traditional recipe requiring 1 to 5 missing non-staple ingredients first.
+        Put the best established traditional recipe requiring 1 to 3 missing non-staple ingredients first.
         Put the best recipe requiring no missing non-staple ingredients second when one exists.
         Randomize the remaining results, while keeping them practical and avoiding recipes that require many purchases.
-        Search enough distinct publishers to provide up to 6 results rather than stopping after the first match.
+        Search distinct publishers within the requested small batch size; PLATE combines batches to show up to 6 results.
         Keep any permitted wine pairing short and relevant to the selected dish.
         """;
 }

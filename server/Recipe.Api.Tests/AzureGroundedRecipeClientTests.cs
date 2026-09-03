@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using Recipe.Api.Models;
 using Recipe.Api.Options;
 using Recipe.Api.Services;
@@ -43,10 +44,13 @@ public sealed class AzureGroundedRecipeClientTests
         Assert.Contains("lamb", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("cookingGuideSteps", handler.RequestBody, StringComparison.Ordinal);
         Assert.Contains("not publisher instructions", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("traditional 1-to-5-missing match", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("display up to 6 recipes", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("traditional 1-to-3-missing match", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("one small batch", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\"description\"", handler.RequestBody, StringComparison.Ordinal);
         using var requestDocument = JsonDocument.Parse(handler.RequestBody);
+        using var inputDocument = JsonDocument.Parse(requestDocument.RootElement.GetProperty("input").GetString()!);
+        Assert.Equal(3, inputDocument.RootElement.GetProperty("desiredCandidateCount").GetInt32());
+        Assert.Equal(3, inputDocument.RootElement.GetProperty("minimumCandidateCount").GetInt32());
         Assert.False(requestDocument.RootElement.TryGetProperty("text", out _));
         Assert.False(requestDocument.RootElement.TryGetProperty("response_format", out _));
     }
@@ -153,6 +157,63 @@ public sealed class AzureGroundedRecipeClientTests
     }
 
     [Fact]
+    public async Task Tries_a_fresh_batch_when_the_first_batch_is_unreadable()
+    {
+        const string sourceUrl = "https://publisher.example.test/recovered-recipe";
+        var handler = new CapturingHandler(
+            TextResponse(sourceUrl, "The first response was prose."),
+            TextResponse(sourceUrl, "The JSON-only retry was also prose."),
+            Response(sourceUrl, sourceUrl, string.Empty));
+        var client = CreateClient(handler, minimumResultCount: 1, maxSearchAttempts: 2);
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Single(response.Recipes);
+        Assert.Equal(3, handler.RequestBodies.Count);
+        using var requestDocument = JsonDocument.Parse(handler.RequestBodies[2]);
+        using var inputDocument = JsonDocument.Parse(requestDocument.RootElement.GetProperty("input").GetString()!);
+        Assert.Equal(2, inputDocument.RootElement.GetProperty("batchNumber").GetInt32());
+    }
+
+    [Fact]
+    public async Task Keeps_valid_first_batch_when_an_additional_batch_is_unreadable()
+    {
+        const string firstUrl = "https://publisher.example.test/first-valid-recipe";
+        const string failedUrl = "https://publisher.example.test/unreadable-follow-up";
+        var handler = new CapturingHandler(
+            Response(firstUrl, firstUrl, string.Empty),
+            TextResponse(failedUrl, "The additional response was prose."),
+            TextResponse(failedUrl, "The additional JSON-only retry was also prose."));
+        var client = CreateClient(handler, minimumResultCount: 2, maxSearchAttempts: 2);
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Single(response.Recipes);
+        Assert.Equal(firstUrl, response.Recipes[0].SourceUrl);
+        Assert.Contains("kept the validated recipes", response.Notice, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, handler.RequestBodies.Count);
+    }
+
+    [Fact]
+    public async Task Accepts_complete_json_with_trailing_commas()
+    {
+        const string sourceUrl = "https://publisher.example.test/trailing-comma-recipe";
+        var validResponse = Response(sourceUrl, sourceUrl, string.Empty);
+        using var responseDocument = JsonDocument.Parse(validResponse);
+        var outputText = responseDocument.RootElement
+            .GetProperty("output")[1]
+            .GetProperty("content")[0]
+            .GetProperty("text")
+            .GetString()!;
+        var trailingCommaJson = outputText[..^2] + ",],}";
+        var client = CreateClient(new CapturingHandler(TextResponse(sourceUrl, trailingCommaJson)));
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Single(response.Recipes);
+    }
+
+    [Fact]
     public async Task Searches_again_when_the_first_batch_has_too_few_distinct_recipes()
     {
         const string firstUrl = "https://publisher.example.test/first-recipe";
@@ -214,7 +275,8 @@ public sealed class AzureGroundedRecipeClientTests
             new HttpClient(handler),
             foodOptions,
             catalogOptions,
-            prompts ?? new TestPromptProvider());
+            prompts ?? new TestPromptProvider(),
+            NullLogger<AzureGroundedRecipeClient>.Instance);
     }
 
     private static GenerateRecipesRequest Request(string diet = "Anything") => new()

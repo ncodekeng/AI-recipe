@@ -1624,6 +1624,8 @@ main {
 }
 
 .recipe-card {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(224, 220, 212, 0.95);
   border-radius: 21px;
@@ -1842,21 +1844,28 @@ main {
 }
 
 .recipe-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   padding: 22px 22px 20px;
 }
 
-.recipe-card-body > .top-pick-label {
+.top-pick-label {
   display: inline-flex;
   min-height: 0;
   align-items: center;
   gap: 5px;
-  margin: 0 0 10px;
+  margin: 0;
   color: var(--coral);
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 1px;
   line-height: 1;
   text-transform: uppercase;
+}
+
+.top-pick-slot:not(:empty) {
+  margin-bottom: 10px;
 }
 
 .recipe-tags {
@@ -1884,14 +1893,6 @@ main {
   font-weight: 400;
   line-height: 1.08;
   letter-spacing: -0.45px;
-}
-
-.recipe-card-body > p {
-  min-height: 58px;
-  margin: 0;
-  color: #77746c;
-  font-size: 12px;
-  line-height: 1.55;
 }
 
 .recipe-meta {
@@ -1931,6 +1932,14 @@ main {
   font-size: 8px;
   letter-spacing: 0.6px;
   text-transform: uppercase;
+}
+
+.wine-pairing-slot {
+  display: flex;
+}
+
+.wine-pairing-slot .wine-pairing {
+  width: 100%;
 }
 
 .modal-wine-pairing {
@@ -2152,6 +2161,33 @@ main {
 
 .recipe-source strong {
   font-size: 10px;
+}
+
+@media (min-width: 681px) {
+  .top-pick-slot {
+    min-height: 19px;
+    margin-bottom: 10px;
+  }
+
+  .recipe-card h3 {
+    min-height: 58px;
+  }
+
+  .wine-pairing-slot {
+    min-height: 76px;
+  }
+
+  .match-breakdown {
+    min-height: 116px;
+  }
+
+  .match-list {
+    height: 100%;
+  }
+
+  .recipe-card-action-slot {
+    min-height: 53px;
+  }
 }
 
 .edamam-attribution {

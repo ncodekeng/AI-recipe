@@ -108,7 +108,7 @@ public sealed class RecipeRankingServiceTests
     }
 
     [Fact]
-    public void Ranking_does_not_promote_a_traditional_recipe_missing_more_than_five_items()
+    public void Ranking_does_not_promote_a_traditional_recipe_missing_more_than_three_items()
     {
         var service = new RecipeRankingService(_normalizer);
         var distantTraditional = Recipe(
@@ -117,9 +117,7 @@ public sealed class RecipeRankingServiceTests
             "carrot",
             "celery",
             "leek",
-            "potato",
-            "peas",
-            "pastry") with
+            "potato") with
         {
             Tags = ["Traditional"]
         };
@@ -131,7 +129,7 @@ public sealed class RecipeRankingServiceTests
 
         Assert.Equal(complete.Id, ranked[0].Id);
         Assert.Empty(ranked[0].MissingIngredients!);
-        Assert.Equal(6, ranked[1].MissingIngredients!.Count);
+        Assert.Equal(4, ranked[1].MissingIngredients!.Count);
     }
 
     [Fact]

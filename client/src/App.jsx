@@ -624,7 +624,9 @@ function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick
       </RecipeHeroImage>
       <PhotoAttribution recipe={recipe} showRecipePhotos={showRecipePhotos} compact />
       <div className="recipe-card-body">
-        {isTopPick && <p className="top-pick-label"><Icon name="sparkles" size={14} /> Top pick</p>}
+        <div className="top-pick-slot">
+          {isTopPick && <p className="top-pick-label"><Icon name="sparkles" size={14} /> Top pick</p>}
+        </div>
         <div className="recipe-tags">
           {recipe.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
         </div>
@@ -634,14 +636,18 @@ function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick
           <span><Icon name="users" size={17} /> {recipe.servings} servings</span>
           <span>{recipe.difficulty}</span>
         </div>
-        {recipe.winePairing && (
-          <p className="wine-pairing"><strong>Rough wine pairing</strong><span>{recipe.winePairing}</span></p>
-        )}
+        <div className="wine-pairing-slot">
+          {recipe.winePairing && (
+            <p className="wine-pairing"><strong>Rough wine pairing</strong><span>{recipe.winePairing}</span></p>
+          )}
+        </div>
         <div className="match-breakdown">
           <IngredientPreview label="You already have" ingredients={availableIngredients} prefix="✓" emptyText="No confirmed matches yet." />
           <IngredientPreview label="You still need" ingredients={missingIngredients} prefix="+" emptyText="Nothing else — you’re ready." />
         </div>
-        <GroceryAction recipe={recipe} compact />
+        <div className="recipe-card-action-slot">
+          <GroceryAction recipe={recipe} compact />
+        </div>
         <button type="button" className="recipe-open" onClick={() => onOpen(recipe)}>
           View recipe <Icon name="arrow" size={17} />
         </button>

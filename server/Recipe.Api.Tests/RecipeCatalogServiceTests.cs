@@ -22,7 +22,12 @@ public sealed class RecipeCatalogServiceTests
             prompts,
             NullLogger<RecipeSearchCache>.Instance);
         var service = new RecipeCatalogService(
-            new AzureGroundedRecipeClient(new HttpClient(), foodAiOptions, options, prompts),
+            new AzureGroundedRecipeClient(
+                new HttpClient(),
+                foodAiOptions,
+                options,
+                prompts,
+                NullLogger<AzureGroundedRecipeClient>.Instance),
             new EdamamRecipeClient(new HttpClient { BaseAddress = new Uri("https://api.edamam.com/") }, options),
             new CommercialRecipeImageClient(
                 new HttpClient { BaseAddress = new Uri("https://commons.wikimedia.org/") },

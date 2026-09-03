@@ -75,7 +75,7 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
         var leading = new List<RankedRecipe>();
         var traditionalNearMatch = candidates
             .Where(item => IsTraditional(item.Recipe))
-            .Where(item => MissingCount(item.Recipe) is >= 1 and <= 5)
+            .Where(item => MissingCount(item.Recipe) is >= 1 and <= 3)
             .OrderBy(item => item.WasRecentlyShown)
             .ThenBy(item => MissingCount(item.Recipe))
             .ThenByDescending(item => item.Recipe.IngredientMatch)
