@@ -44,7 +44,8 @@ public sealed record RecipeSuggestion(
     string? ImageUrl = null,
     IReadOnlyList<RecipeIngredient>? AvailableIngredients = null,
     int RequiredIngredientCount = 0,
-    int AvailableIngredientCount = 0);
+    int AvailableIngredientCount = 0,
+    string? WinePairing = null);
 
 public sealed record RecipeGenerationResponse(
     IReadOnlyList<RecipeSuggestion> Recipes,

@@ -70,14 +70,35 @@ public sealed class RecipeSearchCacheTests
         Assert.False(cache.TryGet(Request(["lamb"]), out _));
     }
 
-    private static RecipeSearchCache CreateCache(RecipeCacheOptions cacheOptions)
+    [Fact]
+    public void Cache_does_not_cross_recipe_providers()
+    {
+        var memory = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 });
+        var settings = new RecipeCacheOptions
+        {
+            Enabled = true,
+            ProviderPermissionConfirmed = true
+        };
+        var azureCache = CreateCache(settings, "AzureWebSearch", memory);
+        var edamamCache = CreateCache(settings, "Edamam", memory);
+
+        azureCache.Store(Request(["lamb"]), Response());
+
+        Assert.False(edamamCache.TryGet(Request(["lamb"]), out _));
+    }
+
+    private static RecipeSearchCache CreateCache(
+        RecipeCacheOptions cacheOptions,
+        string provider = "AzureWebSearch",
+        IMemoryCache? memory = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions
         {
+            Provider = provider,
             Cache = cacheOptions
         });
         return new RecipeSearchCache(
-            new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 }),
+            memory ?? new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 }),
             new IngredientNormalizer(),
             options,
             NullLogger<RecipeSearchCache>.Instance);

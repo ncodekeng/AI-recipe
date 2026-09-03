@@ -5,6 +5,7 @@ using Recipe.Api.Options;
 namespace Recipe.Api.Services;
 
 public sealed class RecipeCatalogService(
+    AzureGroundedRecipeClient azureWebSearch,
     EdamamRecipeClient edamam,
     RecipeSafetyValidator safetyValidator,
     RecipeRankingService ranking,
@@ -18,7 +19,23 @@ public sealed class RecipeCatalogService(
         GenerateRecipesRequest request,
         CancellationToken cancellationToken)
     {
-        if (!_options.Edamam.IsConfigured)
+        var provider = _options.Provider.Trim();
+        var useAzureWebSearch = provider.Equals("AzureWebSearch", StringComparison.OrdinalIgnoreCase);
+        var useEdamam = provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase);
+
+        if (!useAzureWebSearch && !useEdamam)
+        {
+            throw new RecipeCatalogException(
+                $"Unknown recipe provider '{provider}'. Use AzureWebSearch or Edamam.");
+        }
+
+        if (useAzureWebSearch && !azureWebSearch.IsConfigured)
+        {
+            throw new RecipeCatalogException(
+                "Azure web-grounded recipe search requires an Azure OpenAI endpoint, API key, and deployment. PLATE will not invent a replacement recipe.");
+        }
+
+        if (useEdamam && !_options.Edamam.IsConfigured)
         {
             throw new RecipeCatalogException(
                 "Real recipe search requires Edamam credentials. PLATE will not invent a replacement recipe.");
@@ -34,7 +51,9 @@ public sealed class RecipeCatalogService(
 
         try
         {
-            var response = await edamam.FindRecipesAsync(request, cancellationToken);
+            var response = useAzureWebSearch
+                ? await azureWebSearch.FindRecipesAsync(request, cancellationToken)
+                : await edamam.FindRecipesAsync(request, cancellationToken);
             var safeResponse = safetyValidator.Validate(response, request);
             var result = RankAndLimit(safeResponse, request);
             cache.Store(request, result);
@@ -46,7 +65,7 @@ public sealed class RecipeCatalogService(
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            logger.LogError(exception, "Edamam recipe search failed.");
+            logger.LogError(exception, "{Provider} recipe search failed.", provider);
             throw new RecipeCatalogException(
                 "Real recipe search is temporarily unavailable. No generated recipes were substituted; please try again shortly.",
                 exception);

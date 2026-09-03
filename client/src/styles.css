@@ -1544,6 +1544,32 @@ main {
   gap: 5px;
 }
 
+.wine-pairing {
+  display: grid;
+  gap: 4px;
+  min-height: 0 !important;
+  margin: 14px 0 0 !important;
+  padding: 11px 12px;
+  border: 1px solid #e8dfd3;
+  border-radius: 10px;
+  background: #fbf7f1;
+  color: #6f6258 !important;
+  font-size: 10px !important;
+  line-height: 1.45 !important;
+}
+
+.wine-pairing strong {
+  color: #9b594f;
+  font-size: 8px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.modal-wine-pairing {
+  margin: 0 0 20px !important;
+  font-size: 11px !important;
+}
+
 .missing-summary {
   display: flex;
   align-items: center;

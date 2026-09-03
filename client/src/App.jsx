@@ -148,7 +148,7 @@ function PrivacyModal({ onClose, onClear }) {
         <h2 id="privacy-title">Your kitchen stays yours.</h2>
         <div className="privacy-points">
           <p><strong>Photos are temporary.</strong> They are sent to the API for recognition, held in memory while the request runs, and not saved by this app.</p>
-          <p><strong>Cloud processing can apply.</strong> In live mode, photos are processed by the configured Azure OpenAI resource. Recipe searches can send ingredient names and selected restrictions to Edamam.</p>
+          <p><strong>Cloud processing can apply.</strong> In live mode, photos are processed by the configured Azure OpenAI resource. Recipe searches send ingredient names and selected restrictions to Azure web search (Grounding with Bing), or to Edamam when that optional provider is selected.</p>
           <p><strong>Your Kitchen Memory stays in this browser.</strong> The corrected ingredient list, preferences, anonymous usage ID, bookmarks, and recent searches are stored locally. Uploaded photo bytes are never stored.</p>
         </div>
         <button className="secondary-button danger" type="button" onClick={onClear}>Clear this browser's data</button>
@@ -631,6 +631,9 @@ function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick
           <span><Icon name="users" size={17} /> {recipe.servings} servings</span>
           <span>{recipe.difficulty}</span>
         </div>
+        {recipe.winePairing && (
+          <p className="wine-pairing"><strong>Rough wine pairing</strong><span>{recipe.winePairing}</span></p>
+        )}
         <div className="match-breakdown">
           <IngredientPreview label="You already have" ingredients={availableIngredients} prefix="✓" emptyText="No confirmed matches yet." />
           <IngredientPreview label="You still need" ingredients={missingIngredients} prefix="+" emptyText="Nothing else — you’re ready." />
@@ -690,6 +693,9 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
         </RecipeHeroImage>
         <div className="modal-content">
           <p className="modal-description">{recipe.description}</p>
+          {recipe.winePairing && (
+            <p className="wine-pairing modal-wine-pairing"><strong>Rough wine pairing</strong><span>{recipe.winePairing}</span></p>
+          )}
           <div className="modal-match-panel">
             <IngredientPreview label="You have" ingredients={availableIngredients} prefix="✓" emptyText="No confirmed matches yet." />
             <IngredientPreview label="You need" ingredients={missingIngredients} prefix="+" emptyText="You have everything you need." />
@@ -783,9 +789,9 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController()
     getStatus(controller.signal)
-      .then((status) => setProvider(status.recipeProvider === 'Edamam'
-        ? status.recipeProviderConfigured ? 'Edamam' : 'Recipe API setup needed'
-        : status.aiProvider))
+      .then((status) => setProvider(status.recipeProviderConfigured
+        ? status.recipeProvider
+        : `${status.recipeProvider} setup needed`))
       .catch(() => setProvider('API offline'))
     getUsage(controller.signal)
       .then(setUsage)
@@ -987,7 +993,7 @@ export default function App() {
           <button className="library-button" type="button" onClick={() => setShowLibrary(true)}>
             <Icon name="bookmark" size={15} /> Saved {savedRecipes.length > 0 && <span>{savedRecipes.length}</span>}
           </button>
-          <span className={`provider-badge ${provider === 'Azure OpenAI' || provider === 'Edamam' ? 'live' : ''}`}>
+          <span className={`provider-badge ${provider === 'Azure OpenAI' || provider === 'Azure Web Search' || provider === 'Edamam' ? 'live' : ''}`}>
             <span /> {provider}
           </span>
         </nav>
@@ -1111,7 +1117,7 @@ export default function App() {
                       <p className="field-help">Separate multiple ingredients with commas.</p>
                     </div>
                     <label className="photo-preference">
-                      <span><strong>Show recipe photos</strong><small>Load real food photography from the recipe provider.</small></span>
+                      <span><strong>Show recipe photos</strong><small>Load source photography when the active provider supplies it.</small></span>
                       <input type="checkbox" checked={showRecipePhotos} onChange={(event) => setShowRecipePhotos(event.target.checked)} />
                       <i aria-hidden="true"><span /></i>
                     </label>

@@ -12,6 +12,7 @@ public sealed class RecipeCatalogServiceTests
     public async Task Missing_catalog_credentials_never_fall_back_to_an_invented_recipe()
     {
         var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions());
+        var foodAiOptions = Microsoft.Extensions.Options.Options.Create(new FoodAiOptions());
         var normalizer = new IngredientNormalizer();
         var cache = new RecipeSearchCache(
             new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 }),
@@ -19,6 +20,7 @@ public sealed class RecipeCatalogServiceTests
             options,
             NullLogger<RecipeSearchCache>.Instance);
         var service = new RecipeCatalogService(
+            new AzureGroundedRecipeClient(new HttpClient(), foodAiOptions, options),
             new EdamamRecipeClient(new HttpClient { BaseAddress = new Uri("https://api.edamam.com/") }, options),
             new RecipeSafetyValidator(),
             new RecipeRankingService(normalizer),

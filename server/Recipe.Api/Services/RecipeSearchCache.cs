@@ -13,6 +13,7 @@ public sealed class RecipeSearchCache
     private readonly IMemoryCache _cache;
     private readonly IngredientNormalizer _normalizer;
     private readonly RecipeCacheOptions _options;
+    private readonly string _provider;
     private readonly ILogger<RecipeSearchCache> _logger;
 
     public RecipeSearchCache(
@@ -24,6 +25,7 @@ public sealed class RecipeSearchCache
         _cache = cache;
         _normalizer = normalizer;
         _options = options.Value.Cache;
+        _provider = options.Value.Provider.Trim().ToLowerInvariant();
         _logger = logger;
 
         if (_options.Enabled && !_options.ProviderPermissionConfirmed)
@@ -93,7 +95,8 @@ public sealed class RecipeSearchCache
             .ToArray();
         var cacheIdentity = JsonSerializer.Serialize(new
         {
-            Version = 2,
+            Version = 3,
+            Provider = _provider,
             Ingredients = ingredients,
             Allergens = allergens,
             AvoidIngredients = avoidIngredients,

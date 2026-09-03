@@ -31,6 +31,10 @@ builder.Services.AddHttpClient<EdamamRecipeClient>(client =>
     client.BaseAddress = new Uri("https://api.edamam.com/");
     client.Timeout = TimeSpan.FromSeconds(20);
 });
+builder.Services.AddHttpClient<AzureGroundedRecipeClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(90);
+});
 builder.Services.AddScoped<IRecipeAiService, RecipeAiService>();
 builder.Services.AddScoped<IRecipeCatalogService, RecipeCatalogService>();
 

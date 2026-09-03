@@ -2,13 +2,25 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $apiProject = Join-Path $projectRoot 'server\Recipe.Api'
-$apiProcess = Start-Process dotnet -ArgumentList @('run', '--project', $apiProject, '--no-build') -WindowStyle Hidden -PassThru
+$apiAssembly = Join-Path $apiProject 'bin\Debug\net10.0\Recipe.Api.dll'
+if (-not (Test-Path -LiteralPath $apiAssembly)) {
+    throw 'Build the API before running the smoke test.'
+}
+
+$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+$listener.Start()
+$port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+$listener.Stop()
+$baseUrl = "http://localhost:$port"
+$previousAspNetCoreUrls = $env:ASPNETCORE_URLS
+$env:ASPNETCORE_URLS = $baseUrl
+$apiProcess = Start-Process dotnet -ArgumentList @($apiAssembly) -WorkingDirectory $apiProject -WindowStyle Hidden -PassThru
 
 try {
     $ready = $false
     for ($attempt = 0; $attempt -lt 15; $attempt++) {
         try {
-            $status = Invoke-RestMethod -Uri 'http://localhost:5050/api/status' -TimeoutSec 2
+            $status = Invoke-RestMethod -Uri "$baseUrl/api/status" -TimeoutSec 2
             $ready = $true
             break
         }
@@ -18,10 +30,11 @@ try {
     }
 
     if (-not $ready) {
-        throw 'The API did not become ready on http://localhost:5050.'
+        throw "The API did not become ready on $baseUrl."
     }
 
-    $clientId = 'smoke-primary-client-0001'
+    $runId = [guid]::NewGuid().ToString('N')
+    $clientId = "smoke-primary-$runId"
     $clientHeaders = @{ 'X-Plate-Client-Id' = $clientId }
 
     $imagePath = Join-Path $env:TEMP ('mise-smoke-' + [guid]::NewGuid().ToString() + '.png')
@@ -30,7 +43,7 @@ try {
         [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII='))
 
     try {
-        $analysisJson = curl.exe -s -H "X-Plate-Client-Id: $clientId" -F "photos=@$imagePath;type=image/png" 'http://localhost:5050/api/ingredients/analyze'
+        $analysisJson = curl.exe -s -H "X-Plate-Client-Id: $clientId" -F "photos=@$imagePath;type=image/png" "$baseUrl/api/ingredients/analyze"
         $analysis = $analysisJson | ConvertFrom-Json
     }
     finally {
@@ -59,7 +72,7 @@ try {
     $recipeRefused = $false
     try {
         Invoke-RestMethod `
-            -Uri 'http://localhost:5050/api/recipes/generate' `
+            -Uri "$baseUrl/api/recipes/generate" `
             -Method Post `
             -Headers $clientHeaders `
             -ContentType 'application/json' `
@@ -75,7 +88,7 @@ try {
     }
 
     $usage = Invoke-RestMethod `
-        -Uri 'http://localhost:5050/api/usage' `
+        -Uri "$baseUrl/api/usage" `
         -Headers $clientHeaders
 
     if ($usage.scansUsed -ne 1 -or $usage.recipesUsed -ne 1) {
@@ -90,7 +103,7 @@ try {
         )
     } | ConvertTo-Json -Depth 5
     $basket = Invoke-RestMethod `
-        -Uri 'http://localhost:5050/api/grocery/deliveroo/basket' `
+        -Uri "$baseUrl/api/grocery/deliveroo/basket" `
         -Method Post `
         -Headers $clientHeaders `
         -ContentType 'application/json' `
@@ -99,10 +112,10 @@ try {
         throw 'The Deliveroo manual handoff returned an invalid basket claim or ingredient list.'
     }
 
-    $feedbackHeaders = @{ 'X-Plate-Client-Id' = 'smoke-feedback-client-0001' }
+    $feedbackHeaders = @{ 'X-Plate-Client-Id' = "smoke-feedback-$runId" }
     $feedbackBody = @{ rating = 5; message = 'Smoke test feedback' } | ConvertTo-Json
     $feedback = Invoke-RestMethod `
-        -Uri 'http://localhost:5050/api/feedback' `
+        -Uri "$baseUrl/api/feedback" `
         -Method Post `
         -Headers $feedbackHeaders `
         -ContentType 'application/json' `
@@ -113,7 +126,7 @@ try {
 
     try {
         Invoke-RestMethod `
-            -Uri 'http://localhost:5050/api/feedback' `
+            -Uri "$baseUrl/api/feedback" `
             -Method Post `
             -Headers $feedbackHeaders `
             -ContentType 'application/json' `
@@ -127,11 +140,11 @@ try {
         }
     }
 
-    $quotaHeaders = @{ 'X-Plate-Client-Id' = 'smoke-quota-client-0001' }
+    $quotaHeaders = @{ 'X-Plate-Client-Id' = "smoke-quota-$runId" }
     1..3 | ForEach-Object {
         try {
             Invoke-RestMethod `
-                -Uri 'http://localhost:5050/api/recipes/generate' `
+                -Uri "$baseUrl/api/recipes/generate" `
                 -Method Post `
                 -Headers $quotaHeaders `
                 -ContentType 'application/json' `
@@ -148,7 +161,7 @@ try {
 
     try {
         Invoke-RestMethod `
-            -Uri 'http://localhost:5050/api/recipes/generate' `
+            -Uri "$baseUrl/api/recipes/generate" `
             -Method Post `
             -Headers $quotaHeaders `
             -ContentType 'application/json' `
@@ -176,4 +189,5 @@ finally {
     if ($apiProcess -and -not $apiProcess.HasExited) {
         Stop-Process -Id $apiProcess.Id -Force
     }
+    $env:ASPNETCORE_URLS = $previousAspNetCoreUrls
 }
