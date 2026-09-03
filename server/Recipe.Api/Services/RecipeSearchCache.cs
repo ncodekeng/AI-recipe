@@ -14,18 +14,21 @@ public sealed class RecipeSearchCache
     private readonly IngredientNormalizer _normalizer;
     private readonly RecipeCacheOptions _options;
     private readonly string _provider;
+    private readonly IAiPromptProvider _prompts;
     private readonly ILogger<RecipeSearchCache> _logger;
 
     public RecipeSearchCache(
         IMemoryCache cache,
         IngredientNormalizer normalizer,
         IOptions<RecipeCatalogOptions> options,
+        IAiPromptProvider prompts,
         ILogger<RecipeSearchCache> logger)
     {
         _cache = cache;
         _normalizer = normalizer;
         _options = options.Value.Cache;
         _provider = options.Value.Provider.Trim().ToLowerInvariant();
+        _prompts = prompts;
         _logger = logger;
 
         if (_options.Enabled && !_options.ProviderPermissionConfirmed)
@@ -95,15 +98,17 @@ public sealed class RecipeSearchCache
             .ToArray();
         var cacheIdentity = JsonSerializer.Serialize(new
         {
-            Version = 3,
+            Version = 7,
             Provider = _provider,
+            PromptRevision = _prompts.Current.Revision,
             Ingredients = ingredients,
             Allergens = allergens,
             AvoidIngredients = avoidIngredients,
             RecentlyShownRecipeIds = recentlyShownRecipeIds,
             DietaryPreference = request.DietaryPreference.Trim().ToLowerInvariant(),
             request.MaxCookingMinutes,
-            request.Servings
+            request.Servings,
+            request.ShowPhotos
         });
         var digest = SHA256.HashData(Encoding.UTF8.GetBytes(cacheIdentity));
         return $"recipes:{Convert.ToHexString(digest)}";

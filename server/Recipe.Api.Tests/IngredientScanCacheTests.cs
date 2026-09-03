@@ -42,7 +42,20 @@ public sealed class IngredientScanCacheTests
         Assert.False(cache.TryGet("client-one", [photo], out _));
     }
 
-    private static IngredientScanCache CreateCache()
+    [Fact]
+    public void Cache_does_not_cross_prompt_revisions()
+    {
+        var prompts = new TestPromptProvider();
+        var cache = CreateCache(prompts);
+        var photo = Photo("fridge.jpg", [12, 13, 14]);
+        cache.Store("client-one", [photo], Response());
+
+        prompts.ChangeRevision("test-prompts-v2");
+
+        Assert.False(cache.TryGet("client-one", [photo], out _));
+    }
+
+    private static IngredientScanCache CreateCache(TestPromptProvider? prompts = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new FoodAiOptions
         {
@@ -57,6 +70,7 @@ public sealed class IngredientScanCacheTests
         return new IngredientScanCache(
             new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 }),
             options,
+            prompts ?? new TestPromptProvider(),
             NullLogger<IngredientScanCache>.Instance);
     }
 

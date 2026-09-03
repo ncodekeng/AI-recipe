@@ -29,6 +29,7 @@ export default function RecipeHeroImage({ recipe, showRecipePhotos = true, class
           {artwork.ingredients.map((ingredient) => (
             <span className="recipe-art-icon" key={ingredient.key}>{ingredient.icon}</span>
           ))}
+          <span className="recipe-art-note">Source photo unavailable</span>
         </div>
       )}
       {children}

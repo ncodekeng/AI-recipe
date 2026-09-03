@@ -48,7 +48,7 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
         IEnumerable<Guid>? recentlyShownRecipeIds = null)
     {
         var recentIds = recentlyShownRecipeIds?.ToHashSet() ?? [];
-        var ranked = recipes
+        var candidates = recipes
             .Select((recipe, providerIndex) =>
             {
                 var match = CalculateMatch(pantry, recipe.Ingredients);
@@ -65,34 +65,67 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
                     Score(enriched, providerIndex) - (recentIds.Contains(enriched.Id) ? 35 : 0),
                     recentIds.Contains(enriched.Id));
             })
-            .OrderByDescending(item => item.Score)
-            .ThenBy(item => item.Recipe.MissingIngredients?.Count ?? int.MaxValue)
-            .ThenByDescending(item => item.Recipe.IngredientMatch)
             .ToList();
 
-        var purchasable = ranked
-            .Where(item => MissingCount(item.Recipe) > 0)
-            .ToList();
-        if (purchasable.Count == 0)
+        if (candidates.Count == 0)
         {
-            return ranked.Select(item => item.Recipe).ToList();
+            return [];
         }
 
-        var fewestMissing = purchasable.Min(item => MissingCount(item.Recipe));
-        var topPick = purchasable
-            .Where(item => MissingCount(item.Recipe) == fewestMissing)
+        var leading = new List<RankedRecipe>();
+        var traditionalNearMatch = candidates
+            .Where(item => IsTraditional(item.Recipe))
+            .Where(item => MissingCount(item.Recipe) is >= 1 and <= 5)
+            .OrderBy(item => item.WasRecentlyShown)
+            .ThenBy(item => MissingCount(item.Recipe))
+            .ThenByDescending(item => item.Recipe.IngredientMatch)
+            .ThenByDescending(item => item.Score)
+            .FirstOrDefault();
+        if (traditionalNearMatch is not null)
+        {
+            leading.Add(traditionalNearMatch);
+        }
+
+        var completeMatch = candidates
+            .Where(item => MissingCount(item.Recipe) == 0)
+            .Where(item => leading.All(selected => selected.Recipe.Id != item.Recipe.Id))
             .OrderBy(item => item.WasRecentlyShown)
             .ThenByDescending(item => item.Score)
-            .First();
+            .FirstOrDefault();
+        if (completeMatch is not null)
+        {
+            leading.Add(completeMatch);
+        }
 
-        return new[] { topPick }
-            .Concat(ranked.Where(item => item.Recipe.Id != topPick.Recipe.Id))
+        if (leading.Count == 0)
+        {
+            var fewestMissing = candidates.Min(item => MissingCount(item.Recipe));
+            leading.Add(candidates
+                .Where(item => MissingCount(item.Recipe) == fewestMissing)
+                .OrderBy(item => item.WasRecentlyShown)
+                .ThenByDescending(item => item.Score)
+                .First());
+        }
+
+        var selectedIds = leading.Select(item => item.Recipe.Id).ToHashSet();
+        var variedRemainder = candidates
+            .Where(item => !selectedIds.Contains(item.Recipe.Id))
+            .Select(item => new { Item = item, RandomOrder = Random.Shared.Next() })
+            .OrderBy(item => item.Item.WasRecentlyShown)
+            .ThenBy(item => item.RandomOrder)
+            .Select(item => item.Item);
+
+        return leading
+            .Concat(variedRemainder)
             .Select(item => item.Recipe)
             .ToList();
     }
 
     private static int MissingCount(RecipeSuggestion recipe) =>
         recipe.MissingIngredients?.Count ?? recipe.RequiredIngredientCount;
+
+    private static bool IsTraditional(RecipeSuggestion recipe) =>
+        recipe.Tags.Any(tag => tag.Equals("Traditional", StringComparison.OrdinalIgnoreCase));
 
     private static double Score(RecipeSuggestion recipe, int providerIndex)
     {

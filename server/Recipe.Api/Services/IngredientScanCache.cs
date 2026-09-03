@@ -10,6 +10,7 @@ namespace Recipe.Api.Services;
 public sealed class IngredientScanCache(
     IMemoryCache cache,
     IOptions<FoodAiOptions> options,
+    IAiPromptProvider prompts,
     ILogger<IngredientScanCache> logger)
 {
     private readonly IngredientScanCacheOptions _options = options.Value.ScanCache;
@@ -65,6 +66,7 @@ public sealed class IngredientScanCache(
         Append(incrementalHash, "plate-scan-v1");
         Append(incrementalHash, clientKey);
         Append(incrementalHash, _providerIdentity);
+        Append(incrementalHash, prompts.Current.Revision);
         foreach (var photo in photos)
         {
             Append(incrementalHash, photo.FileName.Trim().ToLowerInvariant());

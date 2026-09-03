@@ -14,14 +14,21 @@ public sealed class RecipeCatalogServiceTests
         var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions());
         var foodAiOptions = Microsoft.Extensions.Options.Options.Create(new FoodAiOptions());
         var normalizer = new IngredientNormalizer();
+        var prompts = new TestPromptProvider();
         var cache = new RecipeSearchCache(
             new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 }),
             normalizer,
             options,
+            prompts,
             NullLogger<RecipeSearchCache>.Instance);
         var service = new RecipeCatalogService(
-            new AzureGroundedRecipeClient(new HttpClient(), foodAiOptions, options),
+            new AzureGroundedRecipeClient(new HttpClient(), foodAiOptions, options, prompts),
             new EdamamRecipeClient(new HttpClient { BaseAddress = new Uri("https://api.edamam.com/") }, options),
+            new CommercialRecipeImageClient(
+                new HttpClient { BaseAddress = new Uri("https://commons.wikimedia.org/") },
+                options,
+                new TestHostEnvironment(),
+                NullLogger<CommercialRecipeImageClient>.Instance),
             new RecipeSafetyValidator(),
             new RecipeRankingService(normalizer),
             cache,

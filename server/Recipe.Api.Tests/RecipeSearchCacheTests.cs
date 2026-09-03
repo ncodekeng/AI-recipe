@@ -71,6 +71,31 @@ public sealed class RecipeSearchCacheTests
     }
 
     [Fact]
+    public void Cache_does_not_cross_photo_preferences()
+    {
+        var cache = CreateCache(new RecipeCacheOptions
+        {
+            Enabled = true,
+            ProviderPermissionConfirmed = true
+        });
+        var withPhotos = Request(["lamb"]);
+        var withoutPhotos = Request(["lamb"]);
+        withoutPhotos = new GenerateRecipesRequest
+        {
+            Ingredients = withoutPhotos.Ingredients,
+            Allergens = withoutPhotos.Allergens,
+            AvoidIngredients = withoutPhotos.AvoidIngredients,
+            DietaryPreference = withoutPhotos.DietaryPreference,
+            MaxCookingMinutes = withoutPhotos.MaxCookingMinutes,
+            Servings = withoutPhotos.Servings,
+            ShowPhotos = false
+        };
+        cache.Store(withPhotos, Response());
+
+        Assert.False(cache.TryGet(withoutPhotos, out _));
+    }
+
+    [Fact]
     public void Cache_does_not_cross_recipe_providers()
     {
         var memory = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 });
@@ -87,10 +112,27 @@ public sealed class RecipeSearchCacheTests
         Assert.False(edamamCache.TryGet(Request(["lamb"]), out _));
     }
 
+    [Fact]
+    public void Cache_does_not_cross_prompt_revisions()
+    {
+        var prompts = new TestPromptProvider();
+        var cache = CreateCache(new RecipeCacheOptions
+        {
+            Enabled = true,
+            ProviderPermissionConfirmed = true
+        }, prompts: prompts);
+        cache.Store(Request(["lamb"]), Response());
+
+        prompts.ChangeRevision("test-prompts-v2");
+
+        Assert.False(cache.TryGet(Request(["lamb"]), out _));
+    }
+
     private static RecipeSearchCache CreateCache(
         RecipeCacheOptions cacheOptions,
         string provider = "AzureWebSearch",
-        IMemoryCache? memory = null)
+        IMemoryCache? memory = null,
+        TestPromptProvider? prompts = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions
         {
@@ -101,6 +143,7 @@ public sealed class RecipeSearchCacheTests
             memory ?? new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 }),
             new IngredientNormalizer(),
             options,
+            prompts ?? new TestPromptProvider(),
             NullLogger<RecipeSearchCache>.Instance);
     }
 

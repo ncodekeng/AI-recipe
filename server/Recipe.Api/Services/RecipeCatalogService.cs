@@ -7,6 +7,7 @@ namespace Recipe.Api.Services;
 public sealed class RecipeCatalogService(
     AzureGroundedRecipeClient azureWebSearch,
     EdamamRecipeClient edamam,
+    CommercialRecipeImageClient commercialImages,
     RecipeSafetyValidator safetyValidator,
     RecipeRankingService ranking,
     RecipeSearchCache cache,
@@ -55,7 +56,11 @@ public sealed class RecipeCatalogService(
                 ? await azureWebSearch.FindRecipesAsync(request, cancellationToken)
                 : await edamam.FindRecipesAsync(request, cancellationToken);
             var safeResponse = safetyValidator.Validate(response, request);
-            var result = RankAndLimit(safeResponse, request);
+            var rankedResponse = RankAndLimit(safeResponse, request);
+            var result = await ApplyCommercialImagesAsync(
+                rankedResponse,
+                request.ShowPhotos,
+                cancellationToken);
             cache.Store(request, result);
             return result;
         }
@@ -67,7 +72,7 @@ public sealed class RecipeCatalogService(
         {
             logger.LogError(exception, "{Provider} recipe search failed.", provider);
             throw new RecipeCatalogException(
-                "Real recipe search is temporarily unavailable. No generated recipes were substituted; please try again shortly.",
+                "Real recipe search is temporarily unavailable. No replacement recipe was invented; please try again shortly.",
                 exception);
         }
     }
@@ -79,9 +84,50 @@ public sealed class RecipeCatalogService(
         {
             Recipes = ranking
                 .Rank(response.Recipes, request.Ingredients, request.RecentlyShownRecipeIds)
-                .Take(3)
+                .Take(6)
                 .ToList()
         };
+
+    private async Task<RecipeGenerationResponse> ApplyCommercialImagesAsync(
+        RecipeGenerationResponse response,
+        bool showPhotos,
+        CancellationToken cancellationToken)
+    {
+        var tasks = response.Recipes.Select(async recipe =>
+        {
+            if (!showPhotos || !commercialImages.IsEnabled)
+            {
+                return ClearImage(recipe);
+            }
+
+            var image = await commercialImages.FindAsync(recipe.Title, cancellationToken);
+            return image is null
+                ? ClearImage(recipe)
+                : recipe with
+                {
+                    ImageUrl = image.ImageUrl,
+                    ImageSourceUrl = image.SourceUrl,
+                    ImageLicenseType = image.LicenseType,
+                    ImageLicenseUrl = image.LicenseUrl,
+                    ImageAttributionRequirements = image.AttributionRequirements,
+                    ImageRightsStatus = image.IsVerified
+                        ? RecipeImageRightsStatuses.VerifiedCommercial
+                        : RecipeImageRightsStatuses.UnverifiedTestOnly
+                };
+        });
+
+        return response with { Recipes = await Task.WhenAll(tasks) };
+    }
+
+    private static RecipeSuggestion ClearImage(RecipeSuggestion recipe) => recipe with
+    {
+        ImageUrl = null,
+        ImageSourceUrl = null,
+        ImageLicenseType = null,
+        ImageLicenseUrl = null,
+        ImageAttributionRequirements = null,
+        ImageRightsStatus = RecipeImageRightsStatuses.Unavailable
+    };
 
     private static string AppendNotice(string? current, string message) =>
         string.IsNullOrWhiteSpace(current) ? message : $"{current} {message}";

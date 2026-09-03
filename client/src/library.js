@@ -64,8 +64,8 @@ export function addHistoryEntry(current, request, response) {
     maxCookingMinutes: request.maxCookingMinutes,
     servings: request.servings,
     resultCount: response.recipes.length,
-    recipeIds: response.recipes.map((recipe) => recipe.id).filter(Boolean).slice(0, 3),
-    recipeTitles: response.recipes.map((recipe) => recipe.title).filter(Boolean).slice(0, 3),
+    recipeIds: response.recipes.map((recipe) => recipe.id).filter(Boolean).slice(0, 6),
+    recipeTitles: response.recipes.map((recipe) => recipe.title).filter(Boolean).slice(0, 6),
     provider: response.provider,
   }
   return writeList(HISTORY_KEY, [entry, ...current].slice(0, MAX_HISTORY))

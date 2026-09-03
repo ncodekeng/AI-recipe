@@ -12,9 +12,9 @@ This repository is the independently built, mobile-first implementation referenc
 - Fourteen UK allergens, custom avoided ingredients, diet, time, and serving settings
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
 - Azure Responses API web search for real, cited online recipes, with Edamam available as an optional catalogue provider
-- Backend ingredient normalization, meaningful pantry-staple handling, a guaranteed fewest-missing Top Pick, and recent-result diversification
+- Backend ingredient normalization, meaningful pantry-staple handling, traditional near-match-first ordering, a best complete-match second slot, and recent-result diversification
 - A license-gated seven-day recipe-result cache keyed by normalized ingredients and every safety preference
-- Recipe-specific built-in artwork derived from the title and primary ingredients, used only as a visual fallback when no remote image exists or one fails
+- Commercial-use image lookup through Wikimedia Commons structured license metadata, with recipe-specific built-in artwork whenever no image can be verified
 - A persisted Show recipe photos switch that prevents remote image requests when disabled
 - Visible owned/missing ingredient matching, a primary Top Pick, and source-aware recipe details
 - Animated scan progress and responsive recipe-search skeletons for slower provider requests
@@ -135,15 +135,52 @@ Ingredient recognition uses `/openai/v1/chat/completions`. Recipe discovery uses
 
 `FoodAi__UseDemoFallback` defaults to `true` for presentations. Set it to `false` when Azure failures should be visible instead of switching to demo recognition.
 
+## Configure AI guidance from the admin screen
+
+PLATE now has a protected prompt editor at `/#admin`. In local development, start the API with the normal tracked launch profile and use the development key shown on the screen:
+
+```powershell
+dotnet run --project server/Recipe.Api
+```
+
+Open the React site, choose **Admin**, and enter `plate-local-prompts`. The screen edits two global guidance blocks:
+
+- Ingredient recognition guidance for fridge, freezer, cupboard, and worktop scans
+- Recipe recommendation guidance for style, practicality, matching, and ranking
+
+The admin screen deliberately does not expose the mandatory source-citation, anti-fabrication, JSON-contract, prompt-injection, allergen, or dietary rules. Those remain enforced in code. Changes apply to future Azure requests immediately, and both caches include the active prompt revision so previously cached results cannot conceal a prompt update.
+
+Prompt text is stored server-side as JSON at `PromptAdmin__StoragePath`; the admin key is never returned by the API or saved by the browser. The tracked local profile enables the feature only for development. For a public Azure deployment, keep it disabled until a long random secret and a writable persistent path are configured:
+
+```powershell
+$env:PromptAdmin__Enabled = 'true'
+$env:PromptAdmin__ApiKey = 'REPLACE-WITH-A-LONG-RANDOM-SECRET'
+$env:PromptAdmin__StoragePath = '/home/data/plate-prompt-settings.json'
+```
+
+Use `/home/data/...` for a Linux App Service with persistent storage or `D:\home\data\...` for Windows App Service. Put the admin key in an App Service slot setting or Key Vault reference, require HTTPS, and never commit it. This shared-key screen is suitable for the single-admin prototype; replace it with authenticated role-based access and a shared durable prompt store before running multiple instances or granting several client accounts access.
+
 ## Find real recipes with Azure
 
-The default recipe path uses Azure's Responses API with the `web_search` tool. Azure searches current publisher pages and returns structured recipe metadata. PLATE accepts a result only when its exact HTTPS `sourceUrl` also appears in the search tool's returned sources or citation annotations. A URL written only by the model is rejected. PLATE never asks the model to write a cooking method: users follow the cited publisher link for the complete recipe.
+The default recipe path uses Azure's Responses API with the `web_search` tool. Azure searches current publisher pages and returns structured recipe metadata. PLATE accepts a result only when its exact HTTPS `sourceUrl` also appears in the search tool's returned sources or citation annotations. A URL written only by the model is rejected. Azure also writes a separate practical cooking guide, which the API marks `AiGenerated` and the UI labels as AI guidance rather than publisher instructions. The cited publisher page remains the canonical recipe and is linked at the end.
 
-The model may provide a short presentation summary and rough wine suggestion, but the recipe title, ingredient list, quantities, and source URL must come from one cited page. Halal-style searches suppress wine suggestions. Deterministic dietary and allergen validation still runs after Azure, because prompting is not a safety boundary. Valid results are then ranked by ingredient match and missing purchases.
+The model may provide a rough wine suggestion, but the recipe title, ingredient list, quantities, and source URL must come from one cited page. PLATE does not display an AI-written recipe summary. Halal-style searches do not request or return wine suggestions. Deterministic dietary and allergen validation still runs after Azure, because prompting is not a safety boundary. When available, valid results put the best sourced traditional dish requiring one to five missing non-staple ingredients first and the best no-missing recipe second. Remaining results are randomized, with recently displayed recipes moved later.
 
-Azure web search does not provide a dependable licensed recipe-image field. Azure results therefore use PLATE's recipe-specific built-in artwork. Real remote photography appears only when an explicitly configured provider, such as Edamam, supplies an allowed image URL.
+Azure currently rejects JSON response modes on some Responses API requests that use `web_search`. PLATE therefore leaves the response format in its default text mode, instructs the model to return one JSON object, and parses that object after the search. If Azure returns prose only, it retries once with a stronger JSON-only instruction and a fresh required web search. Recipes from either attempt are accepted only when their source URLs match that attempt's real search sources or citation annotations. A second unreadable response fails visibly without creating a recipe.
 
-To use Edamam instead, select it explicitly and supply its client-owned credentials. Its source links and provider imagery are preserved, and required attribution is shown:
+PLATE asks Azure for at least six distinct cited results and displays at most six. If the first valid batch contains fewer than `RecipeCatalog__AzureWebSearch__MinimumResultCount`, it can make one additional search (controlled by `RecipeCatalog__AzureWebSearch__MaxSearchAttempts`) while excluding URLs already accepted. The defaults are `6` minimum results and `2` total search attempts. A restrictive pantry, cooking-time limit, or safety filter can still leave fewer than six honest results; PLATE reports that instead of inventing extras.
+
+Azure web search does not provide a dependable licensed recipe-image field, so PLATE never accepts an image URL or license claim from the model. When **Show recipe photos** is enabled, the backend separately searches Wikimedia Commons for the exact ranked dish and reads the file's structured image metadata. It accepts only HTTPS bitmap images explicitly marked CC0, Public Domain, CC BY, or CC BY-SA. CC BY and CC BY-SA also require a creator and a valid Creative Commons license URL. Every accepted result returns `imageUrl`, `imageSourceUrl`, `imageLicenseType`, `imageLicenseUrl`, and `imageAttributionRequirements`; the UI displays the required credit and links. Any missing, conflicting, non-commercial, or irrelevant metadata produces `imageUrl: null` and the built-in fallback artwork.
+
+This is deliberately conservative, but not a legal guarantee: Wikimedia says each file can have different reuse conditions and recommends independently checking the file description and non-copyright restrictions before commercial reuse.
+
+The Commons lookup needs no API key. It is enabled by default and can be disabled with `RecipeCatalog__CommercialImages__Enabled=false`; `RecipeCatalog__CommercialImages__MaxCandidates` bounds each search. Turning **Show recipe photos** off sends `showPhotos: false`, skips the lookup, clears all remote-image fields, and uses local artwork.
+
+For visual testing, the tracked `dotnet run` development profile sets `RecipeCatalog__CommercialImages__AllowUnverifiedForTesting=true`. When no fully verified photo is found, Development may show a relevant Commons web image with an orange **Unverified · testing only** warning. The backend requires both that flag and the Development host environment, so the fallback remains disabled in production even if the normal production example settings are used.
+
+When a licensed recipe provider actually returns `instructionLines`, PLATE displays them as provider directions. Standard Edamam web-recipe plans do not return cooking instructions, so those results keep the method on the live publisher page; PLATE does not silently replace them with Azure guidance.
+
+To use Edamam instead, select it explicitly and supply its client-owned credentials. Recipe source links and any licensed provider directions are preserved. Display photography still passes through PLATE's separate commercial-license verification rule:
 
 ```powershell
 $env:RecipeCatalog__Provider = 'Edamam'
@@ -160,7 +197,8 @@ Microsoft documents that Grounding with Bing incurs separate tool-call costs and
 
 - Force Azure's web-search tool for every Azure recipe request.
 - Require every recipe to include a valid HTTPS publisher URL that also appears in Azure's returned search sources, or was returned directly by the selected catalogue provider.
-- Never ask Azure, the demo provider, or another model to invent a recipe, URL, ingredient, quantity, or cooking method.
+- Never ask Azure, the demo provider, or another model to invent a recipe, URL, ingredient, or quantity. Azure may create only the clearly labelled non-canonical cooking guide described above; it must never present it as the publisher's method.
+- Never display an unverified searched image in production. A missing or unverifiable license means `imageUrl: null`, except for the explicitly marked Development-only visual-test fallback.
 - If credentials, web search, the selected provider, its citations, or safe results are unavailable, show the error and ask the user to retry. Never substitute a made-up recipe.
 
 Sourced saves retain only a small local bookmark (title, publisher, and source URL). With the default cache-disabled configuration, the app does not retain the third-party recipe body or image.
@@ -175,7 +213,7 @@ $env:FoodAi__ScanCache__DurationHours = '168'
 $env:FoodAi__ScanCache__MaxEntries = '500'
 ```
 
-The separate recipe cache can save repeated Azure web-search or Edamam calls. It uses a safety-aware key containing the active provider, normalized ingredient names, allergens, avoided ingredients, recent result IDs, diet, cooking time, and servings. It holds up to 500 search results in server memory for 168 hours, so a process restart or Azure App Service recycle clears it.
+The separate recipe cache can save repeated Azure web-search or Edamam calls. It uses a safety-aware key containing the active provider, active prompt revision, normalized ingredient names, allergens, avoided ingredients, recent result IDs, diet, cooking time, and servings. It holds up to 500 search results in server memory for 168 hours, so a process restart or Azure App Service recycle clears it.
 
 Caching is disabled by default because provider/search contracts may restrict storage. Do not enable it merely to save calls; this implementation retains structured recipe ingredients and requires permission covering every cached field and the way PLATE serves it. After receiving and recording permission for the active provider, enable both gates:
 
@@ -216,7 +254,7 @@ Feedback is written as structured application telemetry. Configure a durable pro
 
 - Photo bytes live only for recognition and hashing during the request and are not retained in the scan cache, written to disk, or added to browser history.
 - Azure OpenAI receives photos only when live AI mode is selected.
-- Azure web search (Grounding with Bing) receives ingredient names and selected restrictions for the default recipe path and can process them outside the Azure geographic/compliance boundary; Edamam receives them only when explicitly selected.
+- Azure web search (Grounding with Bing) receives ingredient names and selected restrictions for the default recipe path and can process them outside the Azure geographic/compliance boundary; Edamam receives them only when explicitly selected. Wikimedia Commons receives only a ranked dish title when recipe photos are enabled.
 - The browser stores an anonymous usage ID, corrected Kitchen Memory, preferences, source bookmarks, and recent search/result IDs.
 - Users can clear all local PLATE data from **Privacy & data**.
 
@@ -234,7 +272,7 @@ cd ..
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
 ```
 
-The backend tests cover forced Azure web search, citation enforcement, strict HTTPS sourcing, halal wine suppression, ingredient aliases, missing-ingredient calculation, pantry basics, near-match ranking, provider image mapping/serialization, and the Deliveroo handoff. Frontend tests cover recipe-specific artwork, photo ON/OFF/failure decisions, preference persistence, missing-only basket payloads, and the zero-missing case. The credential-free smoke suite checks image upload, refusal to fabricate recipes, usage tracking, quota enforcement, grocery handoff, and feedback rate limiting. Real Azure and optional Edamam responses still require staging verification with client-owned credentials.
+The backend tests cover forced Azure web search, citation enforcement, strict HTTPS sourcing, halal wine suppression, ingredient aliases, missing-ingredient calculation, pantry basics, exact/near-match ranking, commercial-image license and attribution rejection, image metadata serialization, and the Deliveroo handoff. Frontend tests cover recipe-specific artwork, commercial-license metadata, photo ON/OFF/failure decisions, preference persistence, missing-only basket payloads, and the zero-missing case. The credential-free smoke suite checks image upload, refusal to fabricate recipes, usage tracking, quota enforcement, grocery handoff, and feedback rate limiting. Real Azure, Wikimedia Commons, and optional Edamam responses still require staging verification.
 
 ## API endpoints
 
@@ -253,6 +291,7 @@ The backend tests cover forced Azure web search, citation enforcement, strict HT
 - Replace in-memory anonymous quotas with account/gateway/shared-store enforcement.
 - Add production authentication and server-side persistence if cross-device saves are required.
 - Complete legal review for privacy, allergens, halal/kosher wording, and third-party recipe rights.
+- Review every selected photo's file page and non-copyright restrictions before commercial launch; automated Commons metadata is not a legal guarantee.
 - Configure monitoring, alerts, backups, secret rotation, deployment probes, and a custom domain.
 
 Recipe results are suggestions, not medical advice. The validator finds known text conflicts but cannot guarantee manufacturing, substitution, or cross-contamination safety. Severe-allergy users must verify every product label and consult qualified professionals.

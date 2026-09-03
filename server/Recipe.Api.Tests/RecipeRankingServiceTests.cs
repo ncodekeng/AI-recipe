@@ -47,7 +47,7 @@ public sealed class RecipeRankingServiceTests
     }
 
     [Fact]
-    public void Ranking_can_prefer_an_attractive_near_match_over_a_small_complete_match()
+    public void Ranking_prefers_a_complete_match_when_available()
     {
         var service = new RecipeRankingService(_normalizer);
         var pantry = new[]
@@ -64,14 +64,14 @@ public sealed class RecipeRankingServiceTests
 
         var ranked = service.Rank(recipes, pantry);
 
-        Assert.Equal("Chicken stuffed peppers", ranked[0].Title);
-        Assert.Equal(75, ranked[0].IngredientMatch);
-        Assert.Equal("feta cheese", Assert.Single(ranked[0].MissingIngredients!).Name);
-        Assert.Equal(2, ranked[1].AvailableIngredientCount);
+        Assert.Equal("Chicken and onion", ranked[0].Title);
+        Assert.Equal(100, ranked[0].IngredientMatch);
+        Assert.Empty(ranked[0].MissingIngredients!);
+        Assert.Equal("feta cheese", Assert.Single(ranked[1].MissingIngredients!).Name);
     }
 
     [Fact]
-    public void Top_pick_always_has_the_fewest_missing_items_when_available()
+    public void Top_pick_is_a_complete_match_when_available()
     {
         var service = new RecipeRankingService(_normalizer);
         var exact = Recipe("Provider-favourite omelette", "egg");
@@ -80,6 +80,69 @@ public sealed class RecipeRankingServiceTests
 
         var ranked = service.Rank(
             [exact, twoMissing, oneMissing],
+            [new IngredientInput("egg", "4")]);
+
+        Assert.Equal(exact.Id, ranked[0].Id);
+        Assert.Equal(100, ranked[0].IngredientMatch);
+        Assert.Empty(ranked[0].MissingIngredients!);
+    }
+
+    [Fact]
+    public void Ranking_places_a_traditional_near_match_before_a_complete_match()
+    {
+        var service = new RecipeRankingService(_normalizer);
+        var traditional = Recipe("Traditional chicken pie", "chicken", "onion", "pastry") with
+        {
+            Tags = ["Traditional"]
+        };
+        var complete = Recipe("Chicken and onion", "chicken", "onion");
+
+        var ranked = service.Rank(
+            [complete, traditional],
+            [new IngredientInput("chicken", "2"), new IngredientInput("onion", "1")]);
+
+        Assert.Equal(traditional.Id, ranked[0].Id);
+        Assert.Single(ranked[0].MissingIngredients!);
+        Assert.Equal(complete.Id, ranked[1].Id);
+        Assert.Empty(ranked[1].MissingIngredients!);
+    }
+
+    [Fact]
+    public void Ranking_does_not_promote_a_traditional_recipe_missing_more_than_five_items()
+    {
+        var service = new RecipeRankingService(_normalizer);
+        var distantTraditional = Recipe(
+            "Traditional feast",
+            "chicken",
+            "carrot",
+            "celery",
+            "leek",
+            "potato",
+            "peas",
+            "pastry") with
+        {
+            Tags = ["Traditional"]
+        };
+        var complete = Recipe("Roast chicken", "chicken");
+
+        var ranked = service.Rank(
+            [distantTraditional, complete],
+            [new IngredientInput("chicken", "2")]);
+
+        Assert.Equal(complete.Id, ranked[0].Id);
+        Assert.Empty(ranked[0].MissingIngredients!);
+        Assert.Equal(6, ranked[1].MissingIngredients!.Count);
+    }
+
+    [Fact]
+    public void Top_pick_uses_fewest_missing_items_when_no_complete_match_exists()
+    {
+        var service = new RecipeRankingService(_normalizer);
+        var oneMissing = Recipe("Spinach omelette", "egg", "spinach");
+        var twoMissing = Recipe("Feta spinach omelette", "egg", "spinach", "feta");
+
+        var ranked = service.Rank(
+            [twoMissing, oneMissing],
             [new IngredientInput("egg", "4")]);
 
         Assert.Equal(oneMissing.Id, ranked[0].Id);
@@ -106,12 +169,25 @@ public sealed class RecipeRankingServiceTests
     {
         var service = new RecipeRankingService(_normalizer);
         var ranked = service.Rank(
-            [Recipe("Salmon supper", "salmon", "lemon") with { ImageUrl = "https://images.example.test/salmon.jpg" }],
+            [Recipe("Salmon supper", "salmon", "lemon") with
+            {
+                ImageUrl = "https://upload.wikimedia.org/salmon.jpg",
+                ImageSourceUrl = "https://commons.wikimedia.org/wiki/File:Salmon.jpg",
+                ImageLicenseType = "CC BY 4.0",
+                ImageLicenseUrl = "https://creativecommons.org/licenses/by/4.0/",
+                ImageAttributionRequirements = "Credit the photographer and link the source and license.",
+                ImageRightsStatus = RecipeImageRightsStatuses.VerifiedCommercial
+            }],
             [new IngredientInput("salmon fillets", "2")]);
 
         var json = JsonSerializer.Serialize(ranked[0], new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
-        Assert.Contains("\"imageUrl\":\"https://images.example.test/salmon.jpg\"", json);
+        Assert.Contains("\"imageUrl\":\"https://upload.wikimedia.org/salmon.jpg\"", json);
+        Assert.Contains("\"imageSourceUrl\":\"https://commons.wikimedia.org/wiki/File:Salmon.jpg\"", json);
+        Assert.Contains("\"imageLicenseType\":\"CC BY 4.0\"", json);
+        Assert.Contains("\"imageLicenseUrl\":\"https://creativecommons.org/licenses/by/4.0/\"", json);
+        Assert.Contains("\"imageAttributionRequirements\"", json);
+        Assert.Contains("\"imageRightsStatus\":\"VerifiedCommercial\"", json);
         Assert.Contains("\"availableIngredients\"", json);
         Assert.Contains("\"missingIngredients\"", json);
         Assert.Contains("\"ingredientMatch\":50", json);

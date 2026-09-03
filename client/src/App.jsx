@@ -9,6 +9,8 @@ import {
   savePreferences,
 } from './storage.js'
 import RecipeHeroImage from './RecipeHeroImage.jsx'
+import PromptAdminScreen from './PromptAdminScreen.jsx'
+import { hasValidRecipePhoto } from './recipePhotos.js'
 import {
   buildGroceryBasketPayload,
   canPrepareGroceryBasket,
@@ -90,6 +92,7 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
     basket: <><path d="M3 8h14l-1 9H4L3 8Z"/><path d="m7 8 3-5 3 5"/><path d="M7 11v3M10 11v3M13 11v3"/></>,
     bookmark: <path d="M5 3h10v14l-5-3-5 3V3Z"/>,
     history: <><path d="M3 5v5h5"/><path d="M4 10a7 7 0 1 0 2-5"/><path d="M10 6v4l3 2"/></>,
+    settings: <><circle cx="10" cy="10" r="3"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4"/></>,
   }
 
   return (
@@ -619,13 +622,13 @@ function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick
         </button>
         <div className="match-badge">{recipe.ingredientMatch}% match</div>
       </RecipeHeroImage>
+      <PhotoAttribution recipe={recipe} showRecipePhotos={showRecipePhotos} compact />
       <div className="recipe-card-body">
         {isTopPick && <p className="top-pick-label"><Icon name="sparkles" size={14} /> Top pick</p>}
         <div className="recipe-tags">
           {recipe.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
         </div>
         <h3>{recipe.title}</h3>
-        <p>{recipe.description}</p>
         <div className="recipe-meta">
           <span><Icon name="clock" size={16} /> {recipe.cookingMinutes > 0 ? `${recipe.cookingMinutes} min` : 'See source'}</span>
           <span><Icon name="users" size={17} /> {recipe.servings} servings</span>
@@ -644,7 +647,8 @@ function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick
         </button>
         {recipe.sourceUrl && (
           <a className="recipe-source" href={recipe.sourceUrl} target="_blank" rel="noreferrer">
-            Recipe from {recipe.sourceName || 'original publisher'} <Icon name="external" size={12} />
+            <span><small>Original publisher</small><strong>View detailed recipe</strong></span>
+            <Icon name="external" size={16} />
           </a>
         )}
       </div>
@@ -667,6 +671,10 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
 
   const missingIngredients = getMissingIngredients(recipe)
   const availableIngredients = Array.isArray(recipe.availableIngredients) ? recipe.availableIngredients : []
+  const directions = Array.isArray(recipe.steps) ? recipe.steps.filter((step) => typeof step === 'string' && step.trim()) : []
+  const directionsKind = recipe.directionsKind || 'Unavailable'
+  const hasAiGuide = directionsKind === 'AiGenerated' && directions.length > 0
+  const hasProviderDirections = directionsKind === 'Provider' && directions.length > 0
   const missing = new Set(missingIngredients.map((item) => item.name.toLowerCase()))
   const isSourced = Boolean(recipe.sourceUrl)
   return (
@@ -691,8 +699,8 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
             </div>
           </div>
         </RecipeHeroImage>
+        <PhotoAttribution recipe={recipe} showRecipePhotos={showRecipePhotos} />
         <div className="modal-content">
-          <p className="modal-description">{recipe.description}</p>
           {recipe.winePairing && (
             <p className="wine-pairing modal-wine-pairing"><strong>Rough wine pairing</strong><span>{recipe.winePairing}</span></p>
           )}
@@ -703,7 +711,7 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
           <GroceryAction recipe={recipe} />
           <div className="recipe-columns">
             <section>
-              <p className="eyebrow">What you'll need</p>
+              <p className="recipe-section-title">Ingredients</p>
               <ul className="modal-ingredients">
                 {recipe.ingredients.map((item, index) => (
                   <li className={missing.has(item.name.toLowerCase()) ? 'missing' : ''} key={`${item.name}-${index}`}>
@@ -714,28 +722,64 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
               </ul>
             </section>
             <section>
-              <p className="eyebrow">Method</p>
-              {isSourced ? (
+              <p className="recipe-section-title">{hasAiGuide ? 'AI cooking guide' : 'Directions'}</p>
+              {directions.length > 0 ? (
+                <>
+                  {hasAiGuide && (
+                    <div className="directions-provenance ai-guide-note">
+                      <Icon name="sparkles" size={17} />
+                      <p><strong>AI-generated cooking guide</strong><span>This is practical guidance, not the publisher's original method. Confirm it with the live recipe below.</span></p>
+                    </div>
+                  )}
+                  {hasProviderDirections && (
+                    <div className="directions-provenance provider-directions-note">
+                      <Icon name="check" size={17} />
+                      <p><strong>Provider directions</strong><span>Supplied by {recipe.sourceName || 'the recipe provider'}.</span></p>
+                    </div>
+                  )}
+                  <ol className="method-list">
+                    {directions.map((step, index) => (
+                      <li key={index}><span>{index + 1}</span><p>{step}</p></li>
+                    ))}
+                  </ol>
+                </>
+              ) : isSourced ? (
                 <div className="source-method">
-                  <p>The full method belongs to the original publisher. Open their page for cooking instructions and recipe-specific notes.</p>
-                  <a href={recipe.sourceUrl} target="_blank" rel="noreferrer">
-                    Cook on {recipe.sourceName || 'publisher site'} <Icon name="external" size={16} />
-                  </a>
+                  <strong>Directions remain with the publisher</strong>
+                  <p>This recipe provider did not license cooking directions for display inside PLATE. Use the live source link at the end for the complete method and timings.</p>
                 </div>
               ) : (
-                <ol className="method-list">
-                  {recipe.steps.map((step, index) => (
-                    <li key={index}><span>{index + 1}</span><p>{step}</p></li>
-                  ))}
-                </ol>
+                <div className="source-method"><p>Directions are unavailable for this recipe.</p></div>
               )}
             </section>
           </div>
-          {isSourced && <p className="modal-source-line">Recipe data from <a href={recipe.sourceUrl} target="_blank" rel="noreferrer">{recipe.sourceName || 'the original publisher'}</a>.</p>}
           <div className="safety-note"><Icon name="shield" size={18} /><p>{safetyNote}</p></div>
+          {isSourced && (
+            <a className="modal-detail-link" href={recipe.sourceUrl} target="_blank" rel="noreferrer">
+              <span><small>Original recipe · {recipe.sourceName || 'publisher'}</small><strong>View full live recipe</strong></span>
+              <Icon name="external" size={19} />
+            </a>
+          )}
         </div>
       </article>
     </div>
+  )
+}
+
+function PhotoAttribution({ recipe, showRecipePhotos, compact = false }) {
+  if (!showRecipePhotos || !hasValidRecipePhoto(recipe)) return null
+  const isTestOnly = recipe.imageRightsStatus === 'UnverifiedTestOnly'
+
+  return (
+    <p className={`photo-attribution ${compact ? 'compact' : ''} ${isTestOnly ? 'test-only' : ''}`}>
+      <span>{recipe.imageAttributionRequirements}</span>
+      <a href={recipe.imageSourceUrl} target="_blank" rel="noreferrer">Image source</a>
+      {recipe.imageLicenseUrl ? (
+        <a href={recipe.imageLicenseUrl} target="_blank" rel="noreferrer">{recipe.imageLicenseType}</a>
+      ) : (
+        <strong>{isTestOnly ? 'Unverified · testing only' : recipe.imageLicenseType}</strong>
+      )}
+    </p>
   )
 }
 
@@ -773,14 +817,16 @@ export default function App() {
   const [showPrivacy, setShowPrivacy] = useState(false)
   const [showLibrary, setShowLibrary] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
+  const [showAdmin, setShowAdmin] = useState(() => window.location.hash === '#admin')
   const [savedRecipes, setSavedRecipes] = useState(INITIAL_SAVED_RECIPES)
   const [history, setHistory] = useState(INITIAL_HISTORY)
+  const [reviewStarted, setReviewStarted] = useState(false)
 
   const reviewRef = useRef(null)
   const resultsRef = useRef(null)
   const photoUrlsRef = useRef(new Set())
 
-  const currentStep = recipes.length > 0 ? 3 : ingredients.length > 0 ? 2 : 1
+  const currentStep = recipes.length > 0 ? 3 : reviewStarted ? 2 : 1
   const validIngredients = useMemo(
     () => ingredients.filter((item) => item.name.trim()),
     [ingredients],
@@ -804,6 +850,12 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const syncAdminRoute = () => setShowAdmin(window.location.hash === '#admin')
+    window.addEventListener('hashchange', syncAdminRoute)
+    return () => window.removeEventListener('hashchange', syncAdminRoute)
+  }, [])
+
+  useEffect(() => {
     savePreferences({ allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, showRecipePhotos })
   }, [allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, showRecipePhotos])
 
@@ -817,6 +869,7 @@ export default function App() {
 
   function addPhotos(files) {
     setError('')
+    setReviewStarted(false)
     const supported = files.filter((file) => SUPPORTED_IMAGE_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES)
     if (supported.length !== files.length) {
       setError('Use JPEG, PNG, GIF, or WebP photos no larger than 5 MB each.')
@@ -834,6 +887,7 @@ export default function App() {
   }
 
   function removePhoto(id) {
+    setReviewStarted(false)
     setPhotos((current) => {
       const removed = current.find((photo) => photo.id === id)
       if (removed) {
@@ -846,6 +900,7 @@ export default function App() {
   }
 
   function updateKitchenMemory(updater) {
+    setReviewStarted(true)
     setIngredients((current) => {
       const next = typeof updater === 'function' ? updater(current) : updater
       saveKitchenMemory(next)
@@ -896,6 +951,7 @@ export default function App() {
   }
 
   function toggleAllergen(allergen) {
+    setReviewStarted(true)
     setAllergens((current) => current.includes(allergen)
       ? current.filter((item) => item !== allergen)
       : [...current, allergen])
@@ -904,6 +960,7 @@ export default function App() {
 
   async function handleGenerate() {
     if (!validIngredients.length) return
+    setReviewStarted(true)
     setBusy('generating')
     setRecipes([])
     setSelectedRecipe(null)
@@ -917,6 +974,7 @@ export default function App() {
         dietaryPreference,
         maxCookingMinutes: Number(maxCookingMinutes),
         servings: Number(servings),
+        showPhotos: showRecipePhotos,
         recentlyShownRecipeIds: getRecentlyShownRecipeIds(history),
       }
       const result = await generateRecipes(request)
@@ -981,6 +1039,16 @@ export default function App() {
     requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
+  function openAdmin() {
+    window.location.hash = 'admin'
+    setShowAdmin(true)
+  }
+
+  function closeAdmin() {
+    setShowAdmin(false)
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#top`)
+  }
+
   return (
     <>
       <header className="site-header">
@@ -992,6 +1060,9 @@ export default function App() {
           <a href="#how-it-works">How it works</a>
           <button className="library-button" type="button" onClick={() => setShowLibrary(true)}>
             <Icon name="bookmark" size={15} /> Saved {savedRecipes.length > 0 && <span>{savedRecipes.length}</span>}
+          </button>
+          <button className={`library-button ${showAdmin ? 'active' : ''}`} type="button" onClick={openAdmin}>
+            <Icon name="settings" size={15} /> Admin
           </button>
           <span className={`provider-badge ${provider === 'Azure OpenAI' || provider === 'Azure Web Search' || provider === 'Edamam' ? 'live' : ''}`}>
             <span /> {provider}
@@ -1078,7 +1149,7 @@ export default function App() {
                     <div className="field-group">
                       <label htmlFor="diet">I usually eat</label>
                       <div className="select-wrap">
-                        <select id="diet" value={dietaryPreference} onChange={(event) => { setDietaryPreference(event.target.value); setRecipes([]) }}>
+                        <select id="diet" value={dietaryPreference} onChange={(event) => { setReviewStarted(true); setDietaryPreference(event.target.value); setRecipes([]) }}>
                           {DIETARY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
                         </select>
                         <Icon name="chevron" size={16} />
@@ -1088,7 +1159,7 @@ export default function App() {
                       <div className="field-group">
                         <label htmlFor="time">Max time</label>
                         <div className="select-wrap">
-                          <select id="time" value={maxCookingMinutes} onChange={(event) => { setMaxCookingMinutes(event.target.value); setRecipes([]) }}>
+                          <select id="time" value={maxCookingMinutes} onChange={(event) => { setReviewStarted(true); setMaxCookingMinutes(event.target.value); setRecipes([]) }}>
                             {[20, 30, 45, 60, 90].map((value) => <option value={value} key={value}>{value} min</option>)}
                           </select>
                           <Icon name="chevron" size={16} />
@@ -1097,7 +1168,7 @@ export default function App() {
                       <div className="field-group">
                         <label htmlFor="servings">Serves</label>
                         <div className="select-wrap">
-                          <select id="servings" value={servings} onChange={(event) => { setServings(event.target.value); setRecipes([]) }}>
+                          <select id="servings" value={servings} onChange={(event) => { setReviewStarted(true); setServings(event.target.value); setRecipes([]) }}>
                             {[1, 2, 3, 4, 6].map((value) => <option value={value} key={value}>{value}</option>)}
                           </select>
                           <Icon name="chevron" size={16} />
@@ -1112,13 +1183,13 @@ export default function App() {
                         value={avoidText}
                         placeholder="e.g. coriander, mushrooms"
                         maxLength={220}
-                        onChange={(event) => { setAvoidText(event.target.value); setRecipes([]) }}
+                        onChange={(event) => { setReviewStarted(true); setAvoidText(event.target.value); setRecipes([]) }}
                       />
                       <p className="field-help">Separate multiple ingredients with commas.</p>
                     </div>
                     <label className="photo-preference">
-                      <span><strong>Show recipe photos</strong><small>Load source photography when the active provider supplies it.</small></span>
-                      <input type="checkbox" checked={showRecipePhotos} onChange={(event) => setShowRecipePhotos(event.target.checked)} />
+                      <span><strong>Show recipe photos</strong><small>Search for photos with verified commercial-use license metadata.</small></span>
+                      <input type="checkbox" checked={showRecipePhotos} onChange={(event) => { setReviewStarted(true); setShowRecipePhotos(event.target.checked); setRecipes([]) }} />
                       <i aria-hidden="true"><span /></i>
                     </label>
                   </div>
@@ -1210,6 +1281,7 @@ export default function App() {
           window.location.reload()
         }}
       />}
+      {showAdmin && <PromptAdminScreen onClose={closeAdmin} />}
     </>
   )
 }

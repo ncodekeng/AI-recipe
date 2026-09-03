@@ -24,6 +24,7 @@ Keep this stage focused on converting temporary kitchen photos into an editable 
 6. Show an animated, accessible loading state for slow scans and preserve a useful error when no food is found.
 7. Never generate recipes in the scan provider. Recipe discovery belongs to the sourced catalogue stage.
 8. Cache successful Azure scan responses per anonymous client and photo-content digest for up to seven days. Cache only the structured response, never photo bytes, and do not consume scan allowance on a cache hit.
+9. Administrator-editable recognition guidance may tune naming, quantity estimation, and classification preferences, but it must not replace image validation, pixel inspection, the response schema, anti-prompt-injection rules, or the editable-review step. Protect edits on the server and include the active prompt revision in scan cache keys.
 
 ## Verify
 

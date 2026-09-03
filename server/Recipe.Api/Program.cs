@@ -8,6 +8,7 @@ builder.Services.AddProblemDetails();
 builder.Services.Configure<FoodAiOptions>(builder.Configuration.GetSection(FoodAiOptions.SectionName));
 builder.Services.Configure<RecipeCatalogOptions>(builder.Configuration.GetSection(RecipeCatalogOptions.SectionName));
 builder.Services.Configure<UsageControlOptions>(builder.Configuration.GetSection(UsageControlOptions.SectionName));
+builder.Services.Configure<PromptAdminOptions>(builder.Configuration.GetSection(PromptAdminOptions.SectionName));
 var recipeCacheMaxEntries = builder.Configuration.GetValue<int?>("RecipeCatalog:Cache:MaxEntries") ?? 500;
 var scanCacheMaxEntries = builder.Configuration.GetValue<int?>("FoodAi:ScanCache:MaxEntries") ?? 500;
 builder.Services.AddMemoryCache(options =>
@@ -20,6 +21,9 @@ builder.Services.AddSingleton<RecipeSearchCache>();
 builder.Services.AddSingleton<IngredientScanCache>();
 builder.Services.AddSingleton<IGroceryBasketService, DeliverooBasketService>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<PromptConfigurationStore>();
+builder.Services.AddSingleton<IAiPromptProvider>(services =>
+    services.GetRequiredService<PromptConfigurationStore>());
 builder.Services.AddSingleton<AiUsageGuard>();
 builder.Services.AddSingleton<FeedbackService>();
 builder.Services.AddHttpClient<AzureOpenAiClient>(client =>
@@ -34,6 +38,12 @@ builder.Services.AddHttpClient<EdamamRecipeClient>(client =>
 builder.Services.AddHttpClient<AzureGroundedRecipeClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
+});
+builder.Services.AddHttpClient<CommercialRecipeImageClient>(client =>
+{
+    client.BaseAddress = new Uri("https://commons.wikimedia.org/");
+    client.Timeout = TimeSpan.FromSeconds(12);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("PLATE/1.0 (commercial-license image verification)");
 });
 builder.Services.AddScoped<IRecipeAiService, RecipeAiService>();
 builder.Services.AddScoped<IRecipeCatalogService, RecipeCatalogService>();

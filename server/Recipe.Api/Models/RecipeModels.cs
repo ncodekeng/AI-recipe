@@ -16,6 +16,8 @@ public sealed class GenerateRecipesRequest
 
     [Range(1, 12)]
     public int Servings { get; init; } = 2;
+
+    public bool ShowPhotos { get; init; } = true;
 }
 
 public sealed record RecipeIngredient(
@@ -45,7 +47,27 @@ public sealed record RecipeSuggestion(
     IReadOnlyList<RecipeIngredient>? AvailableIngredients = null,
     int RequiredIngredientCount = 0,
     int AvailableIngredientCount = 0,
-    string? WinePairing = null);
+    string? WinePairing = null,
+    string DirectionsKind = RecipeDirectionsKinds.Unavailable,
+    string? ImageSourceUrl = null,
+    string? ImageLicenseType = null,
+    string? ImageLicenseUrl = null,
+    string? ImageAttributionRequirements = null,
+    string ImageRightsStatus = RecipeImageRightsStatuses.Unavailable);
+
+public static class RecipeDirectionsKinds
+{
+    public const string Provider = "Provider";
+    public const string AiGenerated = "AiGenerated";
+    public const string Unavailable = "Unavailable";
+}
+
+public static class RecipeImageRightsStatuses
+{
+    public const string VerifiedCommercial = "VerifiedCommercial";
+    public const string UnverifiedTestOnly = "UnverifiedTestOnly";
+    public const string Unavailable = "Unavailable";
+}
 
 public sealed record RecipeGenerationResponse(
     IReadOnlyList<RecipeSuggestion> Recipes,

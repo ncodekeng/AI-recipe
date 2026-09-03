@@ -95,21 +95,7 @@ public sealed class EdamamRecipeClient(
             new("q", ingredientQuery),
             new("app_id", _options.AppId),
             new("app_key", _options.AppKey),
-            new("time", $"1-{request.MaxCookingMinutes}"),
-            new("imageSize", "REGULAR"),
-            new("field", "uri"),
-            new("field", "label"),
-            new("field", "url"),
-            new("field", "source"),
-            new("field", "yield"),
-            new("field", "ingredientLines"),
-            new("field", "ingredients"),
-            new("field", "totalTime"),
-            new("field", "cuisineType"),
-            new("field", "dietLabels"),
-            new("field", "healthLabels"),
-            new("field", "image"),
-            new("field", "images")
+            new("time", $"1-{request.MaxCookingMinutes}")
         };
 
         foreach (var healthLabel in GetHealthLabels(request))
@@ -210,12 +196,19 @@ public sealed class EdamamRecipeClient(
             0,
             tags,
             ingredients,
-            [],
+            recipe.InstructionLines
+                .Where(step => !string.IsNullOrWhiteSpace(step))
+                .Select(step => step.Trim())
+                .Take(20)
+                .ToList(),
             AccentFor(recipe.Label),
             null,
             FirstNotEmpty(recipe.Source, sourceUri.Host, "Original publisher"),
             recipe.Url,
-            BestImageUrl(recipe));
+            null,
+            DirectionsKind: recipe.InstructionLines.Any(step => !string.IsNullOrWhiteSpace(step))
+                ? RecipeDirectionsKinds.Provider
+                : RecipeDirectionsKinds.Unavailable);
     }
 
     private static string FormatAmount(double quantity, string? measure, string? originalText = null)
@@ -238,11 +231,6 @@ public sealed class EdamamRecipeClient(
 
     private static string FirstNotEmpty(params string?[] values) =>
         values.First(value => !string.IsNullOrWhiteSpace(value))!.Trim();
-
-    private static string? ValidHttpsUrl(string? value) =>
-        Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps
-            ? uri.ToString()
-            : null;
 
     private static string AccentFor(string title) => ((StableGuid(title).GetHashCode() & int.MaxValue) % 3) switch
     {
@@ -277,12 +265,6 @@ public sealed class EdamamRecipeClient(
         [JsonPropertyName("source")]
         public string? Source { get; init; }
 
-        [JsonPropertyName("image")]
-        public string? Image { get; init; }
-
-        [JsonPropertyName("images")]
-        public Dictionary<string, EdamamImage> Images { get; init; } = new(StringComparer.OrdinalIgnoreCase);
-
         [JsonPropertyName("yield")]
         public double Yield { get; init; }
 
@@ -294,6 +276,9 @@ public sealed class EdamamRecipeClient(
 
         [JsonPropertyName("ingredients")]
         public List<EdamamIngredient> Ingredients { get; init; } = [];
+
+        [JsonPropertyName("instructionLines")]
+        public List<string> InstructionLines { get; init; } = [];
 
         [JsonPropertyName("cuisineType")]
         public List<string> CuisineType { get; init; } = [];
@@ -320,22 +305,4 @@ public sealed class EdamamRecipeClient(
         public string? Measure { get; init; }
     }
 
-    private sealed class EdamamImage
-    {
-        [JsonPropertyName("url")]
-        public string? Url { get; init; }
-    }
-
-    private static string? BestImageUrl(EdamamRecipe recipe)
-    {
-        foreach (var size in new[] { "LARGE", "REGULAR", "SMALL", "THUMBNAIL" })
-        {
-            if (recipe.Images.TryGetValue(size, out var image) && ValidHttpsUrl(image.Url) is { } validUrl)
-            {
-                return validUrl;
-            }
-        }
-
-        return ValidHttpsUrl(recipe.Image);
-    }
 }

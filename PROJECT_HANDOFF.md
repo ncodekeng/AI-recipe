@@ -193,7 +193,7 @@ The user must never go directly from uncertain image recognition to recipes with
 - Done locally for a single instance: daily limits, one active request, estimated budget cutoff, kill switch, and usage display.
 - Done locally: clear prototype data-handling copy and browser-data deletion.
 - Still required for public MVP: Base44/auth decision, cross-device account persistence, shared durable quota/idempotency store, bot/gateway controls, actual cost telemetry, durable feedback/log sink, staging provider verification, and reviewed privacy/legal copy.
-- Still provider-dependent: in-app full instructions and real photography require licensed content. Current sourced recipes link to the publisher for the method; Azure web results use built-in artwork.
+- Still provider-dependent: canonical in-app instructions require licensed content. Production photography is shown only when Wikimedia Commons metadata passes the commercial-license allowlist; otherwise PLATE uses built-in artwork. The local Development profile can show an orange-labelled `UnverifiedTestOnly` image for visual testing, but the backend refuses that fallback outside Development. Azure can show a clearly labelled AI cooking guide, while the publisher link remains canonical.
 
 ### P1 candidates
 
@@ -285,12 +285,21 @@ The local implementation now defaults to **Azure Responses API web search**:
 
 - Set `RecipeCatalog__Provider=AzureWebSearch`; it reuses the configured Azure OpenAI endpoint, key, and deployment.
 - Azure `web_search` is required on every recipe request, and a recipe is accepted only when its exact HTTPS source URL appears in Azure's actual returned sources/citations.
-- The model structures source metadata and may add a short summary and rough wine pairing, but it is forbidden to invent recipes, URLs, ingredients, quantities, or methods. Halal-style results suppress wine pairing.
+- The model structures source metadata and may add a rough wine pairing and a separately labelled AI cooking guide, but it is forbidden to invent recipes, URLs, ingredients, quantities, or claim that its guide is the publisher's method. The UI does not present an AI-written recipe summary. Halal-style results suppress wine pairing.
 - Full third-party cooking instructions are not copied; the user opens the original publisher.
-- Azure web search does not supply a dependable licensed image field, so Azure results use built-in recipe artwork.
+- Azure web search does not supply a dependable licensed image field, so its image URLs and license claims are never trusted. A separate Wikimedia Commons lookup accepts only matching CC0/Public Domain/CC BY/CC BY-SA bitmap files with complete required attribution metadata; any uncertainty produces a null image and built-in artwork.
 - Missing configuration, citations, safe results, or provider availability fail visibly without a generated fallback.
 
-Edamam remains an explicitly selectable optional adapter and can supply provider imagery and its required attribution. Both paths require real staging tests and a commercial/legal review of search, content, image, caching, and attribution terms.
+The local implementation also includes a protected `/#admin` prompt studio:
+
+- It edits separate ingredient-recognition and recipe-recommendation guidance without a redeploy.
+- A server-side admin key protects `GET`, `PUT`, and reset operations under `/api/admin/prompts`; the key is held only in the open browser screen.
+- Mandatory citation, anti-fabrication, JSON, prompt-injection, allergen, and dietary controls remain locked in code and are not editable.
+- Prompt settings persist to a configurable JSON file. The current single-instance Azure example uses `/home/data/plate-prompt-settings.json`; production must provide a long random secret and persistent writable storage before enabling the feature.
+- Scan and recipe cache keys include the active prompt revision so edits take effect on the next request.
+- The tracked development profile enables the editor with the local-only key `plate-local-prompts`. Do not reuse that key publicly.
+
+Edamam remains an explicitly selectable optional adapter. If a licensed Edamam response includes `instructionLines`, PLATE marks and displays them as provider directions; standard web-recipe plans normally require users to open the publisher link. Display images still pass through the separate Commons commercial-license verification. Both paths require real staging tests and a commercial/legal review of search, content, image, directions, caching, and attribution terms.
 
 This is not automatically an Easy feature. Do not scrape and republish arbitrary recipe text or photography. Use one of:
 

@@ -10,7 +10,7 @@ namespace Recipe.Api.Tests;
 public sealed class EdamamRecipeClientTests
 {
     [Fact]
-    public async Task Maps_the_best_real_provider_image_and_source_data()
+    public async Task Maps_source_data_but_not_an_image_without_license_metadata()
     {
         const string payload = """
             {
@@ -25,6 +25,10 @@ public sealed class EdamamRecipeClientTests
                   "ingredients": [
                     { "text": "2 salmon fillets", "food": "salmon fillet", "quantity": 2, "measure": "fillet" },
                     { "text": "1 lemon", "food": "lemon", "quantity": 1, "measure": "whole" }
+                  ],
+                  "instructionLines": [
+                    "Roast the salmon until cooked through.",
+                    "Serve with the lemon."
                   ],
                   "images": {
                     "SMALL": { "url": "https://images.example.test/small.jpg" },
@@ -56,11 +60,13 @@ public sealed class EdamamRecipeClientTests
             CancellationToken.None);
 
         var recipe = Assert.Single(response.Recipes);
-        Assert.Equal("https://images.example.test/regular.jpg", recipe.ImageUrl);
+        Assert.Null(recipe.ImageUrl);
         Assert.Equal("Example Kitchen", recipe.SourceName);
         Assert.Equal("https://publisher.example.test/roast-salmon", recipe.SourceUrl);
         Assert.Equal("salmon fillet", recipe.Ingredients[0].Name);
         Assert.Equal(2, recipe.Ingredients[0].Quantity);
+        Assert.Equal(RecipeDirectionsKinds.Provider, recipe.DirectionsKind);
+        Assert.Equal(2, recipe.Steps.Count);
     }
 
     private sealed class JsonHandler(string payload) : HttpMessageHandler

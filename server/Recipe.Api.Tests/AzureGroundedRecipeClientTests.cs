@@ -26,8 +26,11 @@ public sealed class AzureGroundedRecipeClientTests
         Assert.Equal(sourceUrl, recipe.SourceUrl);
         Assert.Equal("publisher.example.test", recipe.SourceName);
         Assert.Equal("Cotes du Rhone", recipe.WinePairing);
+        Assert.Equal("Real recipe from publisher.example.test.", recipe.Description);
         Assert.Null(recipe.ImageUrl);
-        Assert.Empty(recipe.Steps);
+        Assert.Equal(RecipeDirectionsKinds.AiGenerated, recipe.DirectionsKind);
+        Assert.Equal(2, recipe.Steps.Count);
+        Assert.StartsWith("Brown the lamb", recipe.Steps[0], StringComparison.Ordinal);
 
         Assert.Equal("https://test.openai.azure.com/openai/v1/responses", handler.RequestUri?.ToString());
         Assert.Equal("test-key", handler.ApiKey);
@@ -38,6 +41,14 @@ public sealed class AzureGroundedRecipeClientTests
         Assert.Contains("web_search_call.action.sources", handler.RequestBody, StringComparison.Ordinal);
         Assert.Contains("\"store\":false", handler.RequestBody, StringComparison.Ordinal);
         Assert.Contains("lamb", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cookingGuideSteps", handler.RequestBody, StringComparison.Ordinal);
+        Assert.Contains("not publisher instructions", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("traditional 1-to-5-missing match", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("display up to 6 recipes", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"description\"", handler.RequestBody, StringComparison.Ordinal);
+        using var requestDocument = JsonDocument.Parse(handler.RequestBody);
+        Assert.False(requestDocument.RootElement.TryGetProperty("text", out _));
+        Assert.False(requestDocument.RootElement.TryGetProperty("response_format", out _));
     }
 
     [Fact]
@@ -59,18 +70,128 @@ public sealed class AzureGroundedRecipeClientTests
     public async Task Suppresses_wine_pairing_for_halal_style_requests()
     {
         const string sourceUrl = "https://publisher.example.test/halal-lamb";
-        var client = CreateClient(new CapturingHandler(Response(
+        var handler = new CapturingHandler(Response(
             sourceUrl,
             sourceUrl,
-            "Syrah")));
+            "Syrah"));
+        var client = CreateClient(handler);
         var request = Request("Halal-style");
 
         var response = await client.FindRecipesAsync(request, CancellationToken.None);
 
         Assert.Null(Assert.Single(response.Recipes).WinePairing);
+        Assert.Contains("do not search for a wine pairing", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static AzureGroundedRecipeClient CreateClient(HttpMessageHandler handler)
+    [Fact]
+    public async Task Preserves_the_traditional_tag_for_deterministic_ranking()
+    {
+        const string sourceUrl = "https://publisher.example.test/traditional-stew";
+        var client = CreateClient(new CapturingHandler(Response(
+            sourceUrl,
+            sourceUrl,
+            string.Empty,
+            tags: ["Dinner", "British", "Family", "Traditional"])));
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Equal("Traditional", Assert.Single(response.Recipes).Tags[0]);
+    }
+
+    [Fact]
+    public async Task Reads_json_wrapped_in_explanatory_text_without_another_search()
+    {
+        const string sourceUrl = "https://publisher.example.test/wrapped-recipe";
+        var handler = new CapturingHandler(Response(
+            sourceUrl,
+            sourceUrl,
+            string.Empty,
+            wrapInText: true));
+        var client = CreateClient(handler);
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Single(response.Recipes);
+        Assert.Single(handler.RequestBodies);
+    }
+
+    [Fact]
+    public async Task Retries_in_plain_text_mode_when_azure_returns_only_prose()
+    {
+        const string sourceUrl = "https://publisher.example.test/retry-recipe";
+        var handler = new CapturingHandler(
+            TextResponse(sourceUrl, "I found several possible recipes, but returned prose."),
+            Response(sourceUrl, sourceUrl, string.Empty));
+        var client = CreateClient(handler);
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Single(response.Recipes);
+        Assert.Equal(2, handler.RequestBodies.Count);
+        foreach (var requestBody in handler.RequestBodies)
+        {
+            using var requestDocument = JsonDocument.Parse(requestBody);
+            Assert.False(requestDocument.RootElement.TryGetProperty("text", out _));
+            Assert.False(requestDocument.RootElement.TryGetProperty("response_format", out _));
+        }
+        Assert.Contains("previous response could not be parsed", handler.RequestBodies[1], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Returns_a_clear_error_when_both_azure_attempts_are_prose()
+    {
+        const string sourceUrl = "https://publisher.example.test/unreadable";
+        var handler = new CapturingHandler(
+            TextResponse(sourceUrl, "I returned prose on the first attempt."),
+            TextResponse(sourceUrl, "I returned prose on the second attempt."));
+        var client = CreateClient(handler);
+
+        var exception = await Assert.ThrowsAsync<RecipeSafetyException>(() =>
+            client.FindRecipesAsync(Request(), CancellationToken.None));
+
+        Assert.Contains("readable recipe data", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Searches_again_when_the_first_batch_has_too_few_distinct_recipes()
+    {
+        const string firstUrl = "https://publisher.example.test/first-recipe";
+        const string secondUrl = "https://publisher.example.test/second-recipe";
+        var handler = new CapturingHandler(
+            Response(firstUrl, firstUrl, string.Empty),
+            Response(secondUrl, secondUrl, string.Empty));
+        var client = CreateClient(handler, minimumResultCount: 2, maxSearchAttempts: 2);
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(2, response.Recipes.Count);
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Contains("excludedSourceUrls", handler.RequestBodies[1], StringComparison.Ordinal);
+        Assert.Contains(firstUrl, handler.RequestBodies[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Includes_admin_recipe_guidance_without_replacing_locked_source_rules()
+    {
+        const string sourceUrl = "https://publisher.example.test/custom-guidance";
+        const string customPrompt = "Prefer colourful one-pan family meals when the pantry supports them.";
+        var handler = new CapturingHandler(Response(sourceUrl, sourceUrl, string.Empty));
+        var client = CreateClient(
+            handler,
+            prompts: new TestPromptProvider(recipeRecommendationPrompt: customPrompt));
+
+        await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Contains(customPrompt, handler.RequestBody, StringComparison.Ordinal);
+        Assert.Contains("cannot override mandatory", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Never invent a URL", handler.RequestBody, StringComparison.Ordinal);
+    }
+
+    private static AzureGroundedRecipeClient CreateClient(
+        HttpMessageHandler handler,
+        int minimumResultCount = 1,
+        int maxSearchAttempts = 1,
+        TestPromptProvider? prompts = null)
     {
         var foodOptions = Microsoft.Extensions.Options.Options.Create(new FoodAiOptions
         {
@@ -81,8 +202,19 @@ public sealed class AzureGroundedRecipeClientTests
                 Deployment = "gpt-test"
             }
         });
-        var catalogOptions = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions());
-        return new AzureGroundedRecipeClient(new HttpClient(handler), foodOptions, catalogOptions);
+        var catalogOptions = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions
+        {
+            AzureWebSearch = new AzureWebSearchOptions
+            {
+                MinimumResultCount = minimumResultCount,
+                MaxSearchAttempts = maxSearchAttempts
+            }
+        });
+        return new AzureGroundedRecipeClient(
+            new HttpClient(handler),
+            foodOptions,
+            catalogOptions,
+            prompts ?? new TestPromptProvider());
     }
 
     private static GenerateRecipesRequest Request(string diet = "Anything") => new()
@@ -93,7 +225,12 @@ public sealed class AzureGroundedRecipeClientTests
         Servings = 2
     };
 
-    private static string Response(string citedUrl, string recipeUrl, string winePairing)
+    private static string Response(
+        string citedUrl,
+        string recipeUrl,
+        string winePairing,
+        bool wrapInText = false,
+        string[]? tags = null)
     {
         var recipePayload = JsonSerializer.Serialize(new
         {
@@ -102,12 +239,11 @@ public sealed class AzureGroundedRecipeClientTests
                 new
                 {
                     title = "Publisher lamb stew",
-                    description = "A warming sourced lamb stew.",
                     cookingMinutes = 75,
                     difficulty = "Medium",
                     cuisine = "British",
                     servings = 2,
-                    tags = new[] { "Dinner" },
+                    tags = tags ?? ["Dinner"],
                     ingredients = new[]
                     {
                         new
@@ -119,13 +255,25 @@ public sealed class AzureGroundedRecipeClientTests
                             originalText = "500 g lamb"
                         }
                     },
+                    cookingGuideSteps = new[]
+                    {
+                        "Brown the lamb in a heavy pan for 6 to 8 minutes.",
+                        "Simmer until tender and confirm the meat is safely cooked before serving."
+                    },
                     sourceUrl = recipeUrl,
                     winePairing
                 }
             }
         });
 
-        return JsonSerializer.Serialize(new
+        var outputText = wrapInText
+            ? $"I found a cited recipe.\n```json\n{recipePayload}\n```"
+            : recipePayload;
+        return TextResponse(citedUrl, outputText);
+    }
+
+    private static string TextResponse(string citedUrl, string outputText) =>
+        JsonSerializer.Serialize(new
         {
             output = new object[]
             {
@@ -142,18 +290,20 @@ public sealed class AzureGroundedRecipeClientTests
                         new
                         {
                             type = "output_text",
-                            text = recipePayload,
+                            text = outputText,
                             annotations = new[] { new { type = "url_citation", url = citedUrl } }
                         }
                     }
                 }
             }
         });
-    }
 
-    private sealed class CapturingHandler(string payload) : HttpMessageHandler
+    private sealed class CapturingHandler(params string[] payloads) : HttpMessageHandler
     {
+        private readonly Queue<string> _payloads = new(payloads);
+
         public string RequestBody { get; private set; } = string.Empty;
+        public List<string> RequestBodies { get; } = [];
         public Uri? RequestUri { get; private set; }
         public string? ApiKey { get; private set; }
 
@@ -164,9 +314,10 @@ public sealed class AzureGroundedRecipeClientTests
             RequestUri = request.RequestUri;
             ApiKey = request.Headers.GetValues("api-key").Single();
             RequestBody = await request.Content!.ReadAsStringAsync(cancellationToken);
+            RequestBodies.Add(RequestBody);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+                Content = new StringContent(_payloads.Dequeue(), Encoding.UTF8, "application/json")
             };
         }
     }

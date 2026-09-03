@@ -17,6 +17,7 @@ appsettings.Development.json
 uploads/
 .runlogs/
 .artifacts/
+**/App_Data/
 
 # Editors and operating systems
 .vs/

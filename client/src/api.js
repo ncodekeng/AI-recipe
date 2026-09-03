@@ -108,3 +108,32 @@ export async function submitFeedback(payload) {
     body: JSON.stringify(payload),
   }, 10_000)
 }
+
+function adminHeaders(adminKey, includeJson = false) {
+  return {
+    'X-Plate-Admin-Key': adminKey,
+    ...(includeJson ? { 'Content-Type': 'application/json' } : {}),
+  }
+}
+
+export async function getAdminPrompts(adminKey, signal) {
+  return request('/api/admin/prompts', {
+    signal,
+    headers: adminHeaders(adminKey),
+  }, 10_000)
+}
+
+export async function updateAdminPrompts(adminKey, payload) {
+  return request('/api/admin/prompts', {
+    method: 'PUT',
+    headers: adminHeaders(adminKey, true),
+    body: JSON.stringify(payload),
+  }, 15_000)
+}
+
+export async function resetAdminPrompts(adminKey) {
+  return request('/api/admin/prompts/reset', {
+    method: 'POST',
+    headers: adminHeaders(adminKey),
+  }, 15_000)
+}

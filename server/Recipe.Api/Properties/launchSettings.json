@@ -8,7 +8,10 @@
       "applicationUrl": "http://localhost:5050",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "UsageControl__AllowTestReset": "true"
+        "UsageControl__AllowTestReset": "true",
+        "RecipeCatalog__CommercialImages__AllowUnverifiedForTesting": "true",
+        "PromptAdmin__Enabled": "true",
+        "PromptAdmin__ApiKey": "plate-local-prompts"
       }
     }
   }
