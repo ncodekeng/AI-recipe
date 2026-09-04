@@ -9,4 +9,5 @@ public sealed record UsageStatusResponse(
     int RecipesUsed,
     int RecipeLimit,
     int RecipesRemaining,
-    bool CanReset);
+    bool CanReset,
+    bool IsUnlimited = false);

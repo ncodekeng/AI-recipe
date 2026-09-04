@@ -45,6 +45,7 @@ async function request(url, options = {}, timeoutMs = 90_000) {
   try {
     const response = await fetch(url, {
       ...options,
+      credentials: 'same-origin',
       signal: controller.signal,
       headers: {
         'X-Plate-Client-Id': getClientId(),
@@ -93,6 +94,14 @@ export async function generateRecipes(payload) {
   })
 }
 
+export async function findRecipePhotos(recipes) {
+  return request('/api/recipes/photos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipes }),
+  }, 30_000)
+}
+
 export async function createDeliverooBasket(payload) {
   return request('/api/grocery/deliveroo/basket', {
     method: 'POST',
@@ -123,17 +132,16 @@ export async function getAdminPrompts(adminKey, signal) {
   }, 10_000)
 }
 
-export async function updateAdminPrompts(adminKey, payload) {
+export async function updateAdminPrompts(payload) {
   return request('/api/admin/prompts', {
     method: 'PUT',
-    headers: adminHeaders(adminKey, true),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }, 15_000)
 }
 
-export async function resetAdminPrompts(adminKey) {
+export async function resetAdminPrompts() {
   return request('/api/admin/prompts/reset', {
     method: 'POST',
-    headers: adminHeaders(adminKey),
   }, 15_000)
 }

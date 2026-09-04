@@ -10,11 +10,14 @@ namespace Recipe.Api.Controllers;
 [Route("api/usage")]
 public sealed class UsageController(
     AiUsageGuard usageGuard,
+    AdminSessionService adminSessions,
     IOptions<UsageControlOptions> options) : ControllerBase
 {
     [HttpGet]
     public ActionResult<UsageStatusResponse> Get() =>
-        Ok(usageGuard.GetStatus(ClientIdentity.Resolve(HttpContext)));
+        Ok(usageGuard.GetStatus(
+            ClientIdentity.Resolve(HttpContext),
+            adminSessions.IsAuthenticated(HttpContext)));
 
     [HttpPost("reset")]
     public ActionResult<UsageStatusResponse> Reset()
@@ -24,6 +27,8 @@ public sealed class UsageController(
             return NotFound();
         }
 
-        return Ok(usageGuard.ResetClient(ClientIdentity.Resolve(HttpContext)));
+        return Ok(usageGuard.ResetClient(
+            ClientIdentity.Resolve(HttpContext),
+            adminSessions.IsAuthenticated(HttpContext)));
     }
 }

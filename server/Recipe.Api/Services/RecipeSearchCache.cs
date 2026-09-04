@@ -98,7 +98,7 @@ public sealed class RecipeSearchCache
             .ToArray();
         var cacheIdentity = JsonSerializer.Serialize(new
         {
-            Version = 7,
+            Version = 8,
             Provider = _provider,
             PromptRevision = _prompts.Current.Revision,
             Ingredients = ingredients,
@@ -108,7 +108,8 @@ public sealed class RecipeSearchCache
             DietaryPreference = request.DietaryPreference.Trim().ToLowerInvariant(),
             request.MaxCookingMinutes,
             request.Servings,
-            request.ShowPhotos
+            request.ShowPhotos,
+            request.OnlyUseAvailableIngredients
         });
         var digest = SHA256.HashData(Encoding.UTF8.GetBytes(cacheIdentity));
         return $"recipes:{Convert.ToHexString(digest)}";

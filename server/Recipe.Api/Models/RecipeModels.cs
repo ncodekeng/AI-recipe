@@ -11,13 +11,16 @@ public sealed class GenerateRecipesRequest
     public List<Guid> RecentlyShownRecipeIds { get; init; } = [];
     public string DietaryPreference { get; init; } = "Anything";
 
-    [Range(10, 180)]
+    // Zero means that the user selected "Unlimited".
+    [Range(0, 240)]
     public int MaxCookingMinutes { get; init; } = 45;
 
     [Range(1, 12)]
     public int Servings { get; init; } = 2;
 
     public bool ShowPhotos { get; init; } = true;
+
+    public bool OnlyUseAvailableIngredients { get; init; }
 }
 
 public sealed record RecipeIngredient(
@@ -74,3 +77,21 @@ public sealed record RecipeGenerationResponse(
     string Provider,
     string SafetyNote,
     string? Notice = null);
+
+public sealed class RecipePhotoLookupRequest
+{
+    [MinLength(1)]
+    [MaxLength(6)]
+    public List<RecipePhotoCandidate> Recipes { get; init; } = [];
+}
+
+public sealed record RecipePhotoCandidate(Guid Id, string Title);
+
+public sealed record RecipePhotoLookupResult(
+    Guid Id,
+    string? ImageUrl,
+    string? ImageSourceUrl,
+    string? ImageLicenseType,
+    string? ImageLicenseUrl,
+    string? ImageAttributionRequirements,
+    string ImageRightsStatus);

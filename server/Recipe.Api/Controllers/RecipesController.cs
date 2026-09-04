@@ -6,7 +6,11 @@ namespace Recipe.Api.Controllers;
 
 [ApiController]
 [Route("api/recipes")]
-public sealed class RecipesController(IRecipeCatalogService recipeCatalog, AiUsageGuard usageGuard) : ControllerBase
+public sealed class RecipesController(
+    IRecipeCatalogService recipeCatalog,
+    CommercialRecipeImageClient commercialImages,
+    AdminSessionService adminSessions,
+    AiUsageGuard usageGuard) : ControllerBase
 {
     [HttpPost("generate")]
     public async Task<ActionResult<RecipeGenerationResponse>> Generate(
@@ -38,7 +42,8 @@ public sealed class RecipesController(IRecipeCatalogService recipeCatalog, AiUsa
 
         var admission = usageGuard.TryAcquire(
             ClientIdentity.Resolve(HttpContext),
-            AiOperation.RecipeGeneration);
+            AiOperation.RecipeGeneration,
+            adminSessions.IsAuthenticated(HttpContext));
         if (!admission.Allowed)
         {
             return StatusCode(admission.Rejection!.StatusCode, new ProblemDetails
@@ -73,5 +78,49 @@ public sealed class RecipesController(IRecipeCatalogService recipeCatalog, AiUsa
                 Detail = exception.Message
             });
         }
+    }
+
+    [HttpPost("photos")]
+    public async Task<ActionResult<IReadOnlyList<RecipePhotoLookupResult>>> FindPhotos(
+        [FromBody] RecipePhotoLookupRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Recipes.Count == 0 ||
+            request.Recipes.Count > 6 ||
+            request.Recipes.Any(item => item.Id == Guid.Empty ||
+                string.IsNullOrWhiteSpace(item.Title) || item.Title.Length > 160))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "The recipe photo request is invalid.",
+                Detail = "Send one to six recipe IDs with titles no longer than 160 characters."
+            });
+        }
+
+        var results = await Task.WhenAll(request.Recipes.Select(async recipe =>
+        {
+            var image = await commercialImages.FindAsync(recipe.Title, cancellationToken);
+            return image is null
+                ? new RecipePhotoLookupResult(
+                    recipe.Id,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    RecipeImageRightsStatuses.Unavailable)
+                : new RecipePhotoLookupResult(
+                    recipe.Id,
+                    image.ImageUrl,
+                    image.SourceUrl,
+                    image.LicenseType,
+                    image.LicenseUrl,
+                    image.AttributionRequirements,
+                    image.IsVerified
+                        ? RecipeImageRightsStatuses.VerifiedCommercial
+                        : RecipeImageRightsStatuses.UnverifiedTestOnly);
+        }));
+
+        return Ok(results);
     }
 }

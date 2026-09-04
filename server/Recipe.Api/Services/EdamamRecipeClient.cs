@@ -94,9 +94,13 @@ public sealed class EdamamRecipeClient(
             new("type", "public"),
             new("q", ingredientQuery),
             new("app_id", _options.AppId),
-            new("app_key", _options.AppKey),
-            new("time", $"1-{request.MaxCookingMinutes}")
+            new("app_key", _options.AppKey)
         };
+
+        if (request.MaxCookingMinutes > 0)
+        {
+            parameters.Add(new("time", $"1-{request.MaxCookingMinutes}"));
+        }
 
         foreach (var healthLabel in GetHealthLabels(request))
         {

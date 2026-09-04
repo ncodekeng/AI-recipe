@@ -9,14 +9,15 @@ This repository is the independently built, mobile-first implementation referenc
 - A private per-browser seven-day Azure scan-result cache keyed by photo content, without retaining uploaded photo bytes
 - Credential-free deterministic demo recognition for local development and presentations
 - Required ingredient review with edit, add, remove, quantity correction, and browser-persisted Kitchen Memory
-- Fourteen UK allergens, custom avoided ingredients, diet, time, and serving settings
+- Fourteen UK allergens, custom avoided ingredients, diet, serving settings, and cooking limits through 4 hours or Unlimited
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
 - Azure Responses API web search for real, cited online recipes, with Edamam available as an optional catalogue provider
 - Backend ingredient normalization, meaningful pantry-staple handling, traditional near-match-first ordering, a best complete-match second slot, and recent-result diversification
 - A license-gated seven-day recipe-result cache keyed by normalized ingredients and every safety preference
 - Commercial-use image lookup through Wikimedia Commons structured license metadata, with recipe-specific built-in artwork whenever no image can be verified
-- A persisted Show recipe photos switch that prevents remote image requests when disabled
+- A persisted Show recipe photos switch that prevents remote image requests when disabled and can hydrate existing results without another Azure recipe search
 - Visible owned/missing ingredient matching, a primary Top Pick, and source-aware recipe details
+- A post-results **Cook with what I have / Show all recipes** control, with zero-missing results enforced again by deterministic backend matching
 - Animated scan progress and responsive recipe-search skeletons for slower provider requests
 - An isolated Deliveroo grocery-basket contract with an honest manual handoff until partner basket access is approved
 - Lightweight source bookmarks and recent search/result history in browser storage
@@ -150,21 +151,22 @@ Open the React site, choose **Admin**, and enter `plate-local-prompts`. The scre
 
 The admin screen deliberately does not expose the mandatory source-citation, anti-fabrication, JSON-contract, prompt-injection, allergen, or dietary rules. Those remain enforced in code. Changes apply to future Azure requests immediately, and both caches include the active prompt revision so previously cached results cannot conceal a prompt update.
 
-Prompt text is stored server-side as JSON at `PromptAdmin__StoragePath`; the admin key is never returned by the API or saved by the browser. The tracked local profile enables the feature only for development. For a public Azure deployment, keep it disabled until a long random secret and a writable persistent path are configured:
+Prompt text is stored server-side as JSON at `PromptAdmin__StoragePath`. The admin key is sent only during the initial unlock and is never returned or stored in browser-readable storage. A successful unlock creates an encrypted, HttpOnly, SameSite=Strict admin-session cookie, valid for eight hours by default. The tracked local profile enables the feature only for development. For a public Azure deployment, keep it disabled until a long random secret and a writable persistent path are configured:
 
 ```powershell
 $env:PromptAdmin__Enabled = 'true'
 $env:PromptAdmin__ApiKey = 'REPLACE-WITH-A-LONG-RANDOM-SECRET'
 $env:PromptAdmin__StoragePath = '/home/data/plate-prompt-settings.json'
+$env:PromptAdmin__SessionHours = '8'
 ```
 
-Use `/home/data/...` for a Linux App Service with persistent storage or `D:\home\data\...` for Windows App Service. Put the admin key in an App Service slot setting or Key Vault reference, require HTTPS, and never commit it. This shared-key screen is suitable for the single-admin prototype; replace it with authenticated role-based access and a shared durable prompt store before running multiple instances or granting several client accounts access.
+Use `/home/data/...` for a Linux App Service with persistent storage or `D:\home\data\...` for Windows App Service. Put the admin key in an App Service slot setting or Key Vault reference, require HTTPS, and never commit it. An authenticated admin session bypasses the per-browser scan and recipe attempt limits, but not the global AI kill switch or global budget cutoff. Changing the configured admin key invalidates existing sessions. This shared-key screen is suitable for the single-admin prototype; replace it with authenticated role-based access and a shared durable prompt store before running multiple instances or granting several client accounts access.
 
 ## Find real recipes with Azure
 
 The default recipe path uses Azure's Responses API with the `web_search` tool. Azure searches current publisher pages and returns structured recipe metadata. PLATE accepts a result only when its exact HTTPS `sourceUrl` also appears in the search tool's returned sources or citation annotations. A URL written only by the model is rejected. Azure also writes a separate practical cooking guide, which the API marks `AiGenerated` and the UI labels as AI guidance rather than publisher instructions. The cited publisher page remains the canonical recipe and is linked at the end.
 
-The model may provide a rough wine suggestion, but the recipe title, ingredient list, quantities, and source URL must come from one cited page. PLATE does not display an AI-written recipe summary. Halal-style searches do not request or return wine suggestions. Deterministic dietary and allergen validation still runs after Azure, because prompting is not a safety boundary. When available, valid results put the best sourced traditional dish requiring one to three missing non-staple ingredients first and the best no-missing recipe second. Remaining results are randomized, with recently displayed recipes moved later.
+For every non-halal Azure result the model is instructed to provide a short rough wine suggestion, but the recipe title, ingredient list, quantities, and source URL must come from one cited page. PLATE does not display an AI-written recipe summary. Halal-style searches do not request or return wine suggestions. Deterministic dietary and allergen validation still runs after Azure, because prompting is not a safety boundary. When available, valid results put the best sourced traditional dish requiring one to three missing non-staple ingredients first and the best no-missing recipe second. Remaining results are randomized, with recently displayed recipes moved later. After the first results, **Cook with what I have** makes a fresh sourced search and the backend discards every recipe with a missing non-staple ingredient; **Show all recipes** restores near-matches.
 
 Azure currently rejects JSON response modes on some Responses API requests that use `web_search`. PLATE therefore leaves the response format in its default text mode, instructs the model to return one JSON object, and parses that object after the search. Each call requests no more than three recipes so the JSON remains compact. If Azure returns prose or malformed JSON, PLATE retries that batch once with a stronger JSON-only instruction and accepts harmless trailing commas. Recipes are accepted only when their source URLs match that batch's real search sources or citation annotations.
 
@@ -174,7 +176,7 @@ Azure web search does not provide a dependable licensed recipe-image field, so P
 
 This is deliberately conservative, but not a legal guarantee: Wikimedia says each file can have different reuse conditions and recommends independently checking the file description and non-copyright restrictions before commercial reuse.
 
-The Commons lookup needs no API key. It is enabled by default and can be disabled with `RecipeCatalog__CommercialImages__Enabled=false`; `RecipeCatalog__CommercialImages__MaxCandidates` bounds each search. Turning **Show recipe photos** off sends `showPhotos: false`, skips the lookup, clears all remote-image fields, and uses local artwork.
+The Commons lookup needs no API key. It is enabled by default and can be disabled with `RecipeCatalog__CommercialImages__Enabled=false`; `RecipeCatalog__CommercialImages__MaxCandidates` bounds each search. Turning **Show recipe photos** off skips and unmounts remote images. Turning it back on for results already on screen calls the photo-only endpoint, not Azure recipe generation. A relevant photo is still not guaranteed: if no candidate passes the relevance, license, and attribution checks, local artwork remains.
 
 For visual testing, the tracked `dotnet run` development profile sets `RecipeCatalog__CommercialImages__AllowUnverifiedForTesting=true`. When no fully verified photo is found, Development may show a relevant Commons web image with an orange **Unverified · testing only** warning. The backend requires both that flag and the Development host environment, so the fallback remains disabled in production even if the normal production example settings are used.
 
@@ -234,15 +236,18 @@ Deliveroo does not provide this project with an approved public consumer basket 
 
 No new Deliveroo environment variables are required for the current manual handoff.
 
+Opening the Deliveroo app alone does not create commission attribution. Monetisation requires a commercial agreement and the exact approved referral/deep-link or basket API supplied by Deliveroo; nearest-store selection and automatic basket creation cannot be claimed until those partner capabilities and credentials are granted.
+
 ## Cost and abuse controls
 
 Defaults are configured under `UsageControl` in `appsettings.json` and can be overridden with environment variables:
 
-- 10 scans and 3 recipe requests per anonymous browser per UTC day
+- 10 scans and 300 recipe requests per anonymous browser per UTC day during prototype testing
 - One active AI request per browser
 - 5 MB per image, 6 images, and 30 MB per request
 - USD 50 estimated global daily cutoff
 - `UsageControl__AiEnabled=false` emergency kill switch
+- A valid prompt-admin session has unlimited per-browser test attempts while still respecting the kill switch and global budget
 
 The tracked local `dotnet run` profile enables **Reset test uses**, which calls `POST /api/usage/reset` for the current anonymous browser. `UsageControl__AllowTestReset` remains false by default and must remain false on a public deployment.
 
@@ -281,6 +286,7 @@ The backend tests cover forced Azure web search, citation enforcement, strict HT
 - `POST /api/usage/reset` — resets the current browser's counters only when explicitly enabled for local testing
 - `POST /api/ingredients/analyze` — multipart form with one to six `photos`
 - `POST /api/recipes/generate` — searches sourced recipes using corrected ingredients, restrictions, time, and servings
+- `POST /api/recipes/photos` — finds verified reusable Commons photos for up to six existing recipe results without another AI recipe request
 - `POST /api/grocery/deliveroo/basket` — prepares only the selected recipe's missing ingredients for the supported grocery handoff
 - `POST /api/feedback` — rating and optional short comment
 

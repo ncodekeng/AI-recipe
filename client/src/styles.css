@@ -348,6 +348,17 @@ a {
   overflow: hidden;
 }
 
+.admin-session-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px 32px;
+  border-bottom: 1px solid #dbe5da;
+  background: var(--sage-soft);
+  color: #365a43;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .prompt-panel {
   min-width: 0;
   padding: 32px;
@@ -782,7 +793,7 @@ main {
   transform: scale(1.005);
 }
 
-.drop-zone-button {
+.drop-zone-content {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -792,12 +803,6 @@ main {
   border: 0;
   border-radius: 13px;
   background: transparent;
-  cursor: pointer;
-}
-
-.drop-zone-button:disabled {
-  cursor: default;
-  opacity: 0.55;
 }
 
 .upload-icon {
@@ -812,29 +817,49 @@ main {
   transform: rotate(-3deg);
 }
 
-.drop-zone-button strong {
+.drop-zone-content > strong {
   margin-bottom: 5px;
   font-size: 17px;
 }
 
-.drop-zone-button > span:not(.upload-icon):not(.soft-pill) {
+.drop-zone-content > span:not(.upload-icon) {
   color: #88857d;
   font-size: 13px;
 }
 
-.soft-pill {
+.photo-source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.photo-source-actions button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  margin-top: 20px;
   padding: 9px 15px;
   border: 1px solid #e3dfd7;
   border-radius: 999px;
   background: white;
   color: #55534d;
+  font-family: inherit;
   font-size: 12px;
   font-weight: 700;
   box-shadow: 0 4px 12px rgba(44, 40, 34, 0.05);
+  cursor: pointer;
+}
+
+.photo-source-actions button:first-child {
+  border-color: var(--coral);
+  background: var(--coral);
+  color: white;
+}
+
+.photo-source-actions button:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .photo-list {
@@ -1391,11 +1416,19 @@ main {
   border-radius: 18px;
 }
 
-.generate-bar > div {
+.generate-prompt {
   display: flex;
   align-items: center;
   gap: 13px;
   color: var(--coral);
+}
+
+.generate-actions {
+  display: flex;
+  min-width: min(360px, 100%);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
 }
 
 .generate-bar p {
@@ -1443,6 +1476,14 @@ main {
 .usage-note button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.inline-action-error,
+.results-inline-error {
+  margin: 0;
+  color: #973d35;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .loading-experience {
@@ -1615,6 +1656,81 @@ main {
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 32px;
+}
+
+.recipe-scope-panel {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.65fr) minmax(420px, 1fr);
+  align-items: center;
+  gap: 24px;
+  margin: -7px 0 27px;
+  padding: 18px;
+  border: 1px solid #f0c5bf;
+  border-radius: 18px;
+  background: #fff7f5;
+  box-shadow: 0 12px 30px rgba(139, 61, 51, 0.07);
+}
+
+.recipe-scope-panel > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.recipe-scope-panel strong {
+  color: #65342e;
+  font-size: 13px;
+}
+
+.recipe-scope-panel span {
+  color: #946c67;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.recipe-scope-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 5px;
+  border-radius: 14px;
+  background: #ead2ce;
+}
+
+.recipe-scope-toggle button {
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #7e4c45;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.recipe-scope-toggle button[aria-pressed='true'] {
+  background: #d94f43;
+  color: white;
+  box-shadow: 0 5px 13px rgba(154, 52, 43, 0.25);
+}
+
+.recipe-scope-toggle button:focus-visible {
+  outline: 3px solid rgba(217, 79, 67, 0.27);
+  outline-offset: 2px;
+}
+
+.recipe-scope-toggle button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.results-inline-error {
+  margin: -14px 0 22px;
+  padding: 10px 13px;
+  border-radius: 10px;
+  background: #fff0ed;
 }
 
 .recipe-grid {
@@ -3148,7 +3264,7 @@ footer p {
     line-height: 1;
   }
 
-  .drop-zone-button {
+  .drop-zone-content {
     min-height: 215px;
   }
 
@@ -3206,8 +3322,13 @@ footer p {
     padding: 20px;
   }
 
-  .generate-bar > div {
+  .generate-prompt {
     align-items: flex-start;
+  }
+
+  .generate-actions {
+    width: 100%;
+    min-width: 0;
   }
 
   .usage-note {
@@ -3238,6 +3359,16 @@ footer p {
   }
 
   .recipe-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recipe-scope-panel {
+    grid-template-columns: 1fr;
+    gap: 13px;
+    padding: 15px;
+  }
+
+  .recipe-scope-toggle {
     grid-template-columns: 1fr;
   }
 

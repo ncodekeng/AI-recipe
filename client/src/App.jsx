@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { analyzePhotos, createDeliverooBasket, generateRecipes, getStatus, getUsage, resetUsage, submitFeedback } from './api.js'
+import { analyzePhotos, createDeliverooBasket, findRecipePhotos, generateRecipes, getStatus, getUsage, resetUsage, submitFeedback } from './api.js'
 import {
   clearLocalData,
   loadKitchenMemory,
@@ -57,6 +57,7 @@ const DIETARY_OPTIONS = [
 
 const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const COOKING_TIME_OPTIONS = [20, 30, 45, 60, 90, 120, 180, 240, 0]
 const DEFAULT_PREFERENCES = {
   allergens: [],
   dietaryPreference: 'Anything',
@@ -401,7 +402,8 @@ function LoadingExperience({ mode }) {
 
 function PhotoUploader({ photos, onFiles, onRemove, busy }) {
   const [isDragging, setIsDragging] = useState(false)
-  const inputRef = useRef(null)
+  const cameraInputRef = useRef(null)
+  const libraryInputRef = useRef(null)
 
   function selectFiles(fileList) {
     const selected = Array.from(fileList || []).filter((file) => file.type.startsWith('image/'))
@@ -424,11 +426,22 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
         }}
       >
         <input
-          ref={inputRef}
+          ref={cameraInputRef}
           className="sr-only"
           type="file"
           accept="image/*"
           capture="environment"
+          disabled={busy || photos.length >= 6}
+          onChange={(event) => {
+            selectFiles(event.target.files)
+            event.target.value = ''
+          }}
+        />
+        <input
+          ref={libraryInputRef}
+          className="sr-only"
+          type="file"
+          accept="image/*"
           multiple
           disabled={busy || photos.length >= 6}
           onChange={(event) => {
@@ -436,17 +449,19 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
             event.target.value = ''
           }}
         />
-        <button
-          className="drop-zone-button"
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={busy || photos.length >= 6}
-        >
+        <div className="drop-zone-content">
           <span className="upload-icon"><Icon name="camera" size={28} /></span>
-          <strong>Take a photo or upload</strong>
+          <strong>Add kitchen photos</strong>
           <span>Fridge, cupboard or countertop</span>
-          <span className="soft-pill"><Icon name="upload" size={14} /> Choose photos</span>
-        </button>
+          <div className="photo-source-actions">
+            <button type="button" onClick={() => cameraInputRef.current?.click()} disabled={busy || photos.length >= 6}>
+              <Icon name="camera" size={15} /> Take photo
+            </button>
+            <button type="button" onClick={() => libraryInputRef.current?.click()} disabled={busy || photos.length >= 6}>
+              <Icon name="upload" size={15} /> Choose photos
+            </button>
+          </div>
+        </div>
       </div>
 
       {photos.length > 0 && (
@@ -466,9 +481,9 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
             </figure>
           ))}
           {photos.length < 6 && (
-            <button className="add-photo" type="button" onClick={() => inputRef.current?.click()} disabled={busy}>
+            <button className="add-photo" type="button" onClick={() => libraryInputRef.current?.click()} disabled={busy}>
               <Icon name="plus" size={22} />
-              <span>Add another</span>
+              <span>Choose more</span>
             </button>
           )}
         </div>
@@ -801,7 +816,7 @@ export default function App() {
   const [avoidText, setAvoidText] = useState(() => typeof INITIAL_PREFERENCES.avoidText === 'string'
     ? INITIAL_PREFERENCES.avoidText.slice(0, 220)
     : '')
-  const [maxCookingMinutes, setMaxCookingMinutes] = useState(() => [20, 30, 45, 60, 90].includes(Number(INITIAL_PREFERENCES.maxCookingMinutes))
+  const [maxCookingMinutes, setMaxCookingMinutes] = useState(() => COOKING_TIME_OPTIONS.includes(Number(INITIAL_PREFERENCES.maxCookingMinutes))
     ? Number(INITIAL_PREFERENCES.maxCookingMinutes)
     : DEFAULT_PREFERENCES.maxCookingMinutes)
   const [servings, setServings] = useState(() => [1, 2, 3, 4, 6].includes(Number(INITIAL_PREFERENCES.servings))
@@ -810,6 +825,7 @@ export default function App() {
   const [showRecipePhotos, setShowRecipePhotos] = useState(() => typeof INITIAL_PREFERENCES.showRecipePhotos === 'boolean'
     ? INITIAL_PREFERENCES.showRecipePhotos
     : DEFAULT_PREFERENCES.showRecipePhotos)
+  const [onlyUseAvailableIngredients, setOnlyUseAvailableIngredients] = useState(false)
   const [recipes, setRecipes] = useState([])
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [safetyNote, setSafetyNote] = useState('')
@@ -873,6 +889,13 @@ export default function App() {
     return () => window.cancelAnimationFrame(frame)
   }, [busy])
 
+  function invalidateRecipeResults() {
+    setRecipes([])
+    setSelectedRecipe(null)
+    setOnlyUseAvailableIngredients(false)
+    setNotice('')
+  }
+
   function addPhotos(files) {
     setError('')
     setReviewStarted(false)
@@ -889,7 +912,7 @@ export default function App() {
       return { id: crypto.randomUUID(), file, url }
     })
     setPhotos((current) => [...current, ...additions])
-    setRecipes([])
+    invalidateRecipeResults()
   }
 
   function removePhoto(id) {
@@ -902,11 +925,12 @@ export default function App() {
       }
       return current.filter((photo) => photo.id !== id)
     })
-    setRecipes([])
+    invalidateRecipeResults()
   }
 
   function updateKitchenMemory(updater) {
     setReviewStarted(true)
+    invalidateRecipeResults()
     setIngredients((current) => {
       const next = typeof updater === 'function' ? updater(current) : updater
       saveKitchenMemory(next)
@@ -934,7 +958,6 @@ export default function App() {
         : ''
       const memoryNotice = `${rememberedIngredients.length} ingredient${rememberedIngredients.length === 1 ? '' : 's'} saved in Kitchen Memory.`
       setNotice([result.notice, ignoredNotice, memoryNotice].filter(Boolean).join(' '))
-      setRecipes([])
       requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (requestError) {
       setError(requestError.message)
@@ -946,7 +969,6 @@ export default function App() {
 
   function updateIngredient(id, field, value) {
     updateKitchenMemory((current) => current.map((item) => item.id === id ? { ...item, [field]: value } : item))
-    setRecipes([])
   }
 
   function addIngredient() {
@@ -958,17 +980,20 @@ export default function App() {
 
   function toggleAllergen(allergen) {
     setReviewStarted(true)
+    invalidateRecipeResults()
     setAllergens((current) => current.includes(allergen)
       ? current.filter((item) => item !== allergen)
       : [...current, allergen])
-    setRecipes([])
   }
 
-  async function handleGenerate() {
+  async function handleGenerate(
+    availableIngredientsOnly = onlyUseAvailableIngredients,
+    preserveCurrentResults = false,
+  ) {
     if (!validIngredients.length) return
     setReviewStarted(true)
     setBusy('generating')
-    setRecipes([])
+    if (!preserveCurrentResults) setRecipes([])
     setSelectedRecipe(null)
     setError('')
     setNotice('')
@@ -981,6 +1006,7 @@ export default function App() {
         maxCookingMinutes: Number(maxCookingMinutes),
         servings: Number(servings),
         showPhotos: showRecipePhotos,
+        onlyUseAvailableIngredients: availableIngredientsOnly,
         recentlyShownRecipeIds: getRecentlyShownRecipeIds(history),
       }
       const result = await generateRecipes(request)
@@ -990,11 +1016,53 @@ export default function App() {
       setNotice(result.notice || '')
       setHistory((current) => addHistoryEntry(current, request, result))
       requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      return true
     } catch (requestError) {
       setError(requestError.message)
+      return false
     } finally {
       setBusy('')
       getUsage().then(setUsage).catch(() => {})
+    }
+  }
+
+  async function handleRecipeScopeChange(nextValue) {
+    if (nextValue === onlyUseAvailableIngredients || busy) return
+
+    const previousValue = onlyUseAvailableIngredients
+    setOnlyUseAvailableIngredients(nextValue)
+    const succeeded = await handleGenerate(nextValue, true)
+    if (!succeeded) setOnlyUseAvailableIngredients(previousValue)
+  }
+
+  async function handlePhotoPreferenceChange(enabled) {
+    setReviewStarted(true)
+    setShowRecipePhotos(enabled)
+    if (!enabled || recipes.length === 0) return
+
+    setBusy('photos')
+    setError('')
+    setNotice('Finding verified recipe photos…')
+    try {
+      const photoResults = await findRecipePhotos(
+        recipes.map(({ id, title }) => ({ id, title })),
+      )
+      const photosById = new Map(photoResults.map((photo) => [photo.id, photo]))
+      const applyPhotos = (currentRecipes) => currentRecipes.map((recipe) => ({
+        ...recipe,
+        ...(photosById.get(recipe.id) || {}),
+      }))
+      setRecipes(applyPhotos)
+      setSelectedRecipe((current) => current ? applyPhotos([current])[0] : current)
+      const foundCount = photoResults.filter((photo) => photo.imageUrl).length
+      setNotice(foundCount > 0
+        ? `Found ${foundCount} verified recipe photo${foundCount === 1 ? '' : 's'}.`
+        : 'No matching commercially reusable photos were verified, so the safe artwork remains visible.')
+    } catch (requestError) {
+      setError(requestError.message)
+      setNotice('')
+    } finally {
+      setBusy('')
     }
   }
 
@@ -1035,10 +1103,9 @@ export default function App() {
     setAllergens(Array.isArray(entry.allergens) ? entry.allergens.filter((item) => ALLERGENS.includes(item)) : [])
     setAvoidText(Array.isArray(entry.avoidIngredients) ? entry.avoidIngredients.join(', ').slice(0, 220) : '')
     setDietaryPreference(DIETARY_OPTIONS.includes(entry.dietaryPreference) ? entry.dietaryPreference : 'Anything')
-    setMaxCookingMinutes([20, 30, 45, 60, 90].includes(Number(entry.maxCookingMinutes)) ? Number(entry.maxCookingMinutes) : 45)
+    setMaxCookingMinutes(COOKING_TIME_OPTIONS.includes(Number(entry.maxCookingMinutes)) ? Number(entry.maxCookingMinutes) : 45)
     setServings([1, 2, 3, 4, 6].includes(Number(entry.servings)) ? Number(entry.servings) : 2)
-    setRecipes([])
-    setSelectedRecipe(null)
+    invalidateRecipeResults()
     setShowLibrary(false)
     setError('')
     setNotice('Your previous ingredients and settings are ready to review.')
@@ -1136,7 +1203,7 @@ export default function App() {
                   <IngredientEditor
                     ingredients={ingredients}
                     onChange={updateIngredient}
-                    onRemove={(id) => { updateKitchenMemory((current) => current.filter((item) => item.id !== id)); setRecipes([]) }}
+                    onRemove={(id) => updateKitchenMemory((current) => current.filter((item) => item.id !== id))}
                     onAdd={addIngredient}
                   />
                 </div>
@@ -1155,7 +1222,7 @@ export default function App() {
                     <div className="field-group">
                       <label htmlFor="diet">I usually eat</label>
                       <div className="select-wrap">
-                        <select id="diet" value={dietaryPreference} onChange={(event) => { setReviewStarted(true); setDietaryPreference(event.target.value); setRecipes([]) }}>
+                        <select id="diet" value={dietaryPreference} onChange={(event) => { setReviewStarted(true); setDietaryPreference(event.target.value); invalidateRecipeResults() }}>
                           {DIETARY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
                         </select>
                         <Icon name="chevron" size={16} />
@@ -1165,8 +1232,12 @@ export default function App() {
                       <div className="field-group">
                         <label htmlFor="time">Max time</label>
                         <div className="select-wrap">
-                          <select id="time" value={maxCookingMinutes} onChange={(event) => { setReviewStarted(true); setMaxCookingMinutes(event.target.value); setRecipes([]) }}>
-                            {[20, 30, 45, 60, 90].map((value) => <option value={value} key={value}>{value} min</option>)}
+                          <select id="time" value={maxCookingMinutes} onChange={(event) => { setReviewStarted(true); setMaxCookingMinutes(event.target.value); invalidateRecipeResults() }}>
+                            {COOKING_TIME_OPTIONS.map((value) => (
+                              <option value={value} key={value}>
+                                {value === 0 ? 'Unlimited' : value >= 120 ? `${value / 60}h` : `${value} min`}
+                              </option>
+                            ))}
                           </select>
                           <Icon name="chevron" size={16} />
                         </div>
@@ -1174,7 +1245,7 @@ export default function App() {
                       <div className="field-group">
                         <label htmlFor="servings">Serves</label>
                         <div className="select-wrap">
-                          <select id="servings" value={servings} onChange={(event) => { setReviewStarted(true); setServings(event.target.value); setRecipes([]) }}>
+                          <select id="servings" value={servings} onChange={(event) => { setReviewStarted(true); setServings(event.target.value); invalidateRecipeResults() }}>
                             {[1, 2, 3, 4, 6].map((value) => <option value={value} key={value}>{value}</option>)}
                           </select>
                           <Icon name="chevron" size={16} />
@@ -1189,13 +1260,13 @@ export default function App() {
                         value={avoidText}
                         placeholder="e.g. coriander, mushrooms"
                         maxLength={220}
-                        onChange={(event) => { setReviewStarted(true); setAvoidText(event.target.value); setRecipes([]) }}
+                        onChange={(event) => { setReviewStarted(true); setAvoidText(event.target.value); invalidateRecipeResults() }}
                       />
                       <p className="field-help">Separate multiple ingredients with commas.</p>
                     </div>
                     <label className="photo-preference">
-                      <span><strong>Show recipe photos</strong><small>Search for photos with verified commercial-use license metadata.</small></span>
-                      <input type="checkbox" checked={showRecipePhotos} onChange={(event) => { setReviewStarted(true); setShowRecipePhotos(event.target.checked); setRecipes([]) }} />
+                      <span><strong>Show recipe photos</strong><small>{busy === 'photos' ? 'Finding verified photos…' : 'Search for photos with verified commercial-use license metadata.'}</small></span>
+                      <input type="checkbox" checked={showRecipePhotos} disabled={Boolean(busy)} onChange={(event) => handlePhotoPreferenceChange(event.target.checked)} />
                       <i aria-hidden="true"><span /></i>
                     </label>
                   </div>
@@ -1203,16 +1274,21 @@ export default function App() {
               </div>
 
               <div className="generate-bar">
-                <div><Icon name="sparkles" size={22} /><p><strong>Everything look right?</strong><span>Only sourced online recipes. We never invent them.</span></p></div>
-                <button className="primary-button large" type="button" disabled={!validIngredients.length || Boolean(busy)} onClick={handleGenerate}>
-                  {busy === 'generating' ? <><span className="spinner" /> Finding recipes you can almost make…</> : <>Find real recipes <Icon name="arrow" size={19} /></>}
-                </button>
-                {usage && (
+                <div className="generate-prompt"><Icon name="sparkles" size={22} /><p><strong>Everything look right?</strong><span>Only sourced online recipes. We never invent them.</span></p></div>
+                <div className="generate-actions">
+                  <button className="primary-button large" type="button" disabled={!validIngredients.length || Boolean(busy)} onClick={() => handleGenerate()}>
+                    {busy === 'generating' ? <><span className="spinner" /> Finding recipes you can almost make…</> : <>Find real recipes <Icon name="arrow" size={19} /></>}
+                  </button>
+                  {usage && (
                   <span className="usage-note">
-                    {usage.recipesRemaining} of {usage.recipeLimit} free recipe searches left today
-                    {usage.canReset && <button type="button" disabled={Boolean(busy)} onClick={handleResetUsage}>Reset test uses</button>}
-                  </span>
-                )}
+                      {usage.isUnlimited
+                        ? 'Unlimited admin test recipe searches'
+                        : `${usage.recipesRemaining} of ${usage.recipeLimit} free recipe searches left today`}
+                      {usage.canReset && <button type="button" disabled={Boolean(busy)} onClick={handleResetUsage}>Reset test uses</button>}
+                    </span>
+                  )}
+                  {error && <p className="inline-action-error">{error}</p>}
+                </div>
               </div>
             </section>
           )}
@@ -1229,6 +1305,31 @@ export default function App() {
                 </div>
                 <span className="section-number">03</span>
               </div>
+              <div className="recipe-scope-panel">
+                <div>
+                  <strong>Choose your recipe range</strong>
+                  <span>{onlyUseAvailableIngredients ? 'Only recipes needing no extra non-staple ingredients.' : 'Includes inspiring recipes with a few missing ingredients.'}</span>
+                </div>
+                <div className="recipe-scope-toggle" role="group" aria-label="Recipe range">
+                  <button
+                    type="button"
+                    aria-pressed={onlyUseAvailableIngredients}
+                    disabled={Boolean(busy)}
+                    onClick={() => handleRecipeScopeChange(true)}
+                  >
+                    Cook with what I have
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={!onlyUseAvailableIngredients}
+                    disabled={Boolean(busy)}
+                    onClick={() => handleRecipeScopeChange(false)}
+                  >
+                    Show all recipes
+                  </button>
+                </div>
+              </div>
+              {error && <p className="results-inline-error">{error}</p>}
               <div className="recipe-grid">
                 {recipes.map((recipe, index) => (
                   <RecipeCard
@@ -1287,7 +1388,10 @@ export default function App() {
           window.location.reload()
         }}
       />}
-      {showAdmin && <PromptAdminScreen onClose={closeAdmin} />}
+      {showAdmin && <PromptAdminScreen
+        onClose={closeAdmin}
+        onAuthenticated={() => getUsage().then(setUsage).catch(() => {})}
+      />}
     </>
   )
 }

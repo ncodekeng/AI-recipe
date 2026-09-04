@@ -5,6 +5,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
+builder.Services.AddDataProtection();
 builder.Services.Configure<FoodAiOptions>(builder.Configuration.GetSection(FoodAiOptions.SectionName));
 builder.Services.Configure<RecipeCatalogOptions>(builder.Configuration.GetSection(RecipeCatalogOptions.SectionName));
 builder.Services.Configure<UsageControlOptions>(builder.Configuration.GetSection(UsageControlOptions.SectionName));
@@ -24,6 +25,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<PromptConfigurationStore>();
 builder.Services.AddSingleton<IAiPromptProvider>(services =>
     services.GetRequiredService<PromptConfigurationStore>());
+builder.Services.AddSingleton<AdminSessionService>();
 builder.Services.AddSingleton<AiUsageGuard>();
 builder.Services.AddSingleton<FeedbackService>();
 builder.Services.AddHttpClient<AzureOpenAiClient>(client =>

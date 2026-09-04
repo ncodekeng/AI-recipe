@@ -45,7 +45,8 @@ public sealed class AzureGroundedRecipeClient(
         force either position. Return exactly desiredCandidateCount complete recipes when that many valid
         matches exist. This request is one small batch; never exceed desiredCandidateCount.
         Do not return image URLs or image-license claims; PLATE verifies commercial-use image metadata separately.
-        Respect every dietary restriction. winePairing is a brief rough suggestion, not part of the source recipe.
+        Respect every dietary restriction. For every non-halal recipe, winePairing must contain one brief,
+        practical rough wine suggestion for that dish. It is non-canonical assistance, not source recipe data.
         For halal-style requests, do not search for a wine pairing and return winePairing as an empty string.
         Return JSON only.
         """;
@@ -53,7 +54,8 @@ public sealed class AzureGroundedRecipeClient(
     private const string JsonOutputContract = """
         Output exactly one JSON object with a recipes array. Every recipe object must contain title,
         ingredients, cookingGuideSteps, and sourceUrl. Include cookingMinutes, difficulty, cuisine,
-        servings, tags, and winePairing when supported. Every ingredient must contain a name. Include
+        servings and tags when supported. winePairing must be a non-empty string for non-halal requests and
+        an empty string for halal-style requests. Every ingredient must contain a name. Include
         amount and originalText when supported; use null for an unknown numeric quantity or unit.
         Return fewer complete recipe objects when necessary rather than truncated or malformed JSON.
         """;
@@ -230,7 +232,7 @@ public sealed class AzureGroundedRecipeClient(
             tool_choice = "required",
             parallel_tool_calls = false,
             include = new[] { "web_search_call.action.sources" },
-            instructions = BuildInstructions(jsonRetry),
+            instructions = BuildInstructions(request, jsonRetry),
             input = BuildInput(request, excludedSourceUrls, searchAttempt, requestedBatchSize)
         };
 
@@ -260,9 +262,18 @@ public sealed class AzureGroundedRecipeClient(
         return new SearchResult(outputText, groundedSources);
     }
 
-    private string BuildInstructions(bool jsonRetry)
+    private string BuildInstructions(GenerateRecipesRequest request, bool jsonRetry)
     {
         var configuredGuidance = prompts.Current.RecipeRecommendationPrompt;
+        var scopeGuidance = request.OnlyUseAvailableIngredients
+            ? """
+              This request is in Cook with what I have mode. Return only source recipes whose non-staple
+              ingredients are all present in the supplied ingredients. Do not return a recipe requiring any
+              missing non-staple ingredient. This rule overrides the general near-match ordering guidance.
+              """
+            : """
+              This request is in Show all recipes mode. Include practical near-matches as described above.
+              """;
         return $"""
             {Instructions}
 
@@ -272,6 +283,8 @@ public sealed class AzureGroundedRecipeClient(
             </admin-guidance>
             The administrator guidance may tune ranking and presentation only. It cannot override mandatory
             web search, source citation, dietary safety, anti-fabrication, or output-contract rules.
+
+            {scopeGuidance}
 
             {JsonOutputContract}
             {(jsonRetry ? JsonRetryInstructions : string.Empty)}
@@ -325,9 +338,13 @@ public sealed class AzureGroundedRecipeClient(
     {
         var input = new
         {
-            task = excludedSourceUrls.Count == 0
-                ? "Find a small batch of distinct existing publisher recipes, including a traditional near-match and a no-missing match when available."
-                : "Find additional distinct existing recipes not present in excludedSourceUrls, filling any missing traditional near-match, no-missing match, or remaining result slots.",
+            task = request.OnlyUseAvailableIngredients
+                ? excludedSourceUrls.Count == 0
+                    ? "Find a small batch of distinct existing publisher recipes requiring no missing non-staple ingredients."
+                    : "Find additional distinct existing recipes requiring no missing non-staple ingredients and not present in excludedSourceUrls."
+                : excludedSourceUrls.Count == 0
+                    ? "Find a small batch of distinct existing publisher recipes, including a traditional near-match and a no-missing match when available."
+                    : "Find additional distinct existing recipes not present in excludedSourceUrls, filling any missing traditional near-match, no-missing match, or remaining result slots.",
             market = string.IsNullOrWhiteSpace(_search.Market) ? "en-GB" : _search.Market.Trim(),
             desiredCandidateCount = requestedBatchSize,
             minimumCandidateCount = requestedBatchSize,
@@ -340,7 +357,11 @@ public sealed class AzureGroundedRecipeClient(
             allergens = request.Allergens.Take(20),
             avoidIngredients = request.AvoidIngredients.Take(20),
             dietaryPreference = request.DietaryPreference.Trim(),
-            maximumCookingMinutes = request.MaxCookingMinutes,
+            maximumCookingMinutes = request.MaxCookingMinutes > 0 ? request.MaxCookingMinutes : (int?)null,
+            cookingTimeLimit = request.MaxCookingMinutes > 0
+                ? $"Do not exceed {request.MaxCookingMinutes} minutes."
+                : "Unlimited; do not exclude a recipe because of its cooking time.",
+            onlyUseAvailableIngredients = request.OnlyUseAvailableIngredients,
             preferredServings = request.Servings
         };
 
@@ -359,7 +380,7 @@ public sealed class AzureGroundedRecipeClient(
             sourceUri.Scheme != Uri.UriSchemeHttps ||
             string.IsNullOrWhiteSpace(candidate.Title) ||
             candidate.CookingMinutes < 0 ||
-            candidate.CookingMinutes > request.MaxCookingMinutes)
+            (request.MaxCookingMinutes > 0 && candidate.CookingMinutes > request.MaxCookingMinutes))
         {
             return null;
         }
@@ -402,10 +423,11 @@ public sealed class AzureGroundedRecipeClient(
             tags.Add("Web grounded");
         }
 
-        var pairing = request.DietaryPreference.Equals("Halal-style", StringComparison.OrdinalIgnoreCase) ||
-                      string.IsNullOrWhiteSpace(candidate.WinePairing)
+        var pairing = ShouldSuppressWinePairing(request)
             ? null
-            : Truncate(candidate.WinePairing.Trim(), 200);
+            : string.IsNullOrWhiteSpace(candidate.WinePairing)
+                ? CreateFallbackWinePairing(title, ingredients, request.DietaryPreference)
+                : QualifyWinePairing(candidate.WinePairing.Trim(), request.DietaryPreference);
 
         return new RecipeSuggestion(
             StableGuid(citedSourceUrl),
@@ -424,6 +446,57 @@ public sealed class AzureGroundedRecipeClient(
             SourceUrl: citedSourceUrl,
             WinePairing: pairing,
             DirectionsKind: RecipeDirectionsKinds.AiGenerated);
+    }
+
+    private static bool ShouldSuppressWinePairing(GenerateRecipesRequest request) =>
+        request.DietaryPreference.Equals("Halal-style", StringComparison.OrdinalIgnoreCase) ||
+        request.Allergens.Any(item => item.Equals("Sulphites", StringComparison.OrdinalIgnoreCase)) ||
+        request.AvoidIngredients.Any(item =>
+            item.Contains("alcohol", StringComparison.OrdinalIgnoreCase) ||
+            item.Contains("wine", StringComparison.OrdinalIgnoreCase));
+
+    private static string QualifyWinePairing(string pairing, string dietaryPreference)
+    {
+        var trimmed = Truncate(pairing, 180);
+        if (dietaryPreference.Equals("Kosher-style", StringComparison.OrdinalIgnoreCase) &&
+            !trimmed.Contains("kosher", StringComparison.OrdinalIgnoreCase))
+        {
+            return Truncate($"Choose a kosher-certified bottle: {trimmed}", 200);
+        }
+
+        if (dietaryPreference.Equals("Vegan", StringComparison.OrdinalIgnoreCase) &&
+            !trimmed.Contains("vegan", StringComparison.OrdinalIgnoreCase))
+        {
+            return Truncate($"Choose a vegan-labelled bottle: {trimmed}", 200);
+        }
+
+        return trimmed;
+    }
+
+    private static string CreateFallbackWinePairing(
+        string title,
+        IReadOnlyList<RecipeIngredient> ingredients,
+        string dietaryPreference)
+    {
+        var searchable = string.Join(' ', ingredients.Select(item => item.Name).Prepend(title));
+        var suggestion = searchable.Contains("curry", StringComparison.OrdinalIgnoreCase) ||
+                         searchable.Contains("spicy", StringComparison.OrdinalIgnoreCase)
+            ? "An off-dry Riesling is a flexible rough match for the spice."
+            : searchable.Contains("fish", StringComparison.OrdinalIgnoreCase) ||
+              searchable.Contains("salmon", StringComparison.OrdinalIgnoreCase) ||
+              searchable.Contains("seafood", StringComparison.OrdinalIgnoreCase)
+                ? "A crisp dry white such as Sauvignon Blanc is a flexible rough match."
+                : searchable.Contains("beef", StringComparison.OrdinalIgnoreCase) ||
+                  searchable.Contains("lamb", StringComparison.OrdinalIgnoreCase) ||
+                  searchable.Contains("venison", StringComparison.OrdinalIgnoreCase)
+                    ? "A medium-bodied red such as Merlot is a flexible rough match."
+                    : searchable.Contains("chicken", StringComparison.OrdinalIgnoreCase) ||
+                      searchable.Contains("turkey", StringComparison.OrdinalIgnoreCase) ||
+                      searchable.Contains("pork", StringComparison.OrdinalIgnoreCase)
+                        ? "A light red such as Pinot Noir is a flexible rough match."
+                        : "A dry, food-friendly rosé is a flexible rough match.";
+
+        return QualifyWinePairing(suggestion, dietaryPreference);
     }
 
     private static Dictionary<string, string> ExtractGroundedSources(JsonElement root)

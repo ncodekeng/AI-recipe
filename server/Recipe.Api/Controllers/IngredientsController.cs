@@ -9,6 +9,7 @@ namespace Recipe.Api.Controllers;
 public sealed class IngredientsController(
     IRecipeAiService recipeAi,
     IngredientScanCache scanCache,
+    AdminSessionService adminSessions,
     AiUsageGuard usageGuard) : ControllerBase
 {
     private const int MaxPhotoCount = 6;
@@ -66,7 +67,9 @@ public sealed class IngredientsController(
         var clientKey = ClientIdentity.Resolve(HttpContext);
         if (scanCache.TryGet(clientKey, uploadedPhotos, out var cached) && cached is not null)
         {
-            var cachedStatus = usageGuard.GetStatus(clientKey);
+            var cachedStatus = usageGuard.GetStatus(
+                clientKey,
+                adminSessions.IsAuthenticated(HttpContext));
             Response.Headers["X-Plate-Scans-Remaining"] = cachedStatus.ScansRemaining.ToString();
             return Ok(cached with
             {
@@ -76,7 +79,8 @@ public sealed class IngredientsController(
 
         var admission = usageGuard.TryAcquire(
             clientKey,
-            AiOperation.IngredientScan);
+            AiOperation.IngredientScan,
+            adminSessions.IsAuthenticated(HttpContext));
         if (!admission.Allowed)
         {
             return StatusCode(admission.Rejection!.StatusCode, new ProblemDetails

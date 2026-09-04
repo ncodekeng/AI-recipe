@@ -163,6 +163,23 @@ public sealed class RecipeRankingServiceTests
     }
 
     [Fact]
+    public void Cook_with_what_I_have_returns_only_zero_missing_matches()
+    {
+        var service = new RecipeRankingService(_normalizer);
+        var complete = Recipe("Chicken and onion", "chicken", "onion");
+        var nearMatch = Recipe("Chicken and spinach", "chicken", "spinach");
+
+        var ranked = service.Rank(
+            [nearMatch, complete],
+            [new IngredientInput("chicken", "2"), new IngredientInput("onion", "1")],
+            onlyUseAvailableIngredients: true);
+
+        Assert.Equal(complete.Id, Assert.Single(ranked).Id);
+        Assert.Empty(ranked[0].MissingIngredients!);
+        Assert.Equal(100, ranked[0].IngredientMatch);
+    }
+
+    [Fact]
     public void Recipe_serializes_real_image_and_match_fields()
     {
         var service = new RecipeRankingService(_normalizer);

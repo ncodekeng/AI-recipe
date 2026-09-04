@@ -36,7 +36,10 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
     private DateOnly _currentDay = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
     private decimal _estimatedSpendUsd;
 
-    public UsageAdmission TryAcquire(string clientKey, AiOperation operation)
+    public UsageAdmission TryAcquire(
+        string clientKey,
+        AiOperation operation,
+        bool hasUnlimitedQuota = false)
     {
         lock (_sync)
         {
@@ -45,7 +48,7 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
 
             if (!_options.Enabled)
             {
-                return Allow(clientKey, usage, operation, trackUsage: false);
+                return Allow(clientKey, usage, operation, trackUsage: false, isUnlimited: true);
             }
 
             if (!_options.AiEnabled)
@@ -71,7 +74,7 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
                 ? Math.Max(0, _options.DailyScanLimit)
                 : Math.Max(0, _options.DailyRecipeLimit);
 
-            if (used >= limit)
+            if (!hasUnlimitedQuota && used >= limit)
             {
                 return Reject(
                     usage,
@@ -94,27 +97,32 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
                     "Free AI requests are paused until the next UTC day.");
             }
 
-            return Allow(clientKey, usage, operation, trackUsage: true);
+            return Allow(
+                clientKey,
+                usage,
+                operation,
+                trackUsage: true,
+                isUnlimited: hasUnlimitedQuota);
         }
     }
 
-    public UsageStatusResponse GetStatus(string clientKey)
+    public UsageStatusResponse GetStatus(string clientKey, bool hasUnlimitedQuota = false)
     {
         lock (_sync)
         {
             ResetIfNeeded();
-            return CreateStatus(GetOrCreateUsage(clientKey));
+            return CreateStatus(GetOrCreateUsage(clientKey), hasUnlimitedQuota);
         }
     }
 
-    public UsageStatusResponse ResetClient(string clientKey)
+    public UsageStatusResponse ResetClient(string clientKey, bool hasUnlimitedQuota = false)
     {
         lock (_sync)
         {
             ResetIfNeeded();
             _usage.Remove(clientKey);
             _activeClients.Remove(clientKey);
-            return CreateStatus(GetOrCreateUsage(clientKey));
+            return CreateStatus(GetOrCreateUsage(clientKey), hasUnlimitedQuota);
         }
     }
 
@@ -122,7 +130,8 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
         string clientKey,
         ClientUsage usage,
         AiOperation operation,
-        bool trackUsage)
+        bool trackUsage,
+        bool isUnlimited)
     {
         _activeClients.Add(clientKey);
         if (trackUsage)
@@ -140,7 +149,7 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
         }
 
         var lease = new AiUsageLease(() => Release(clientKey));
-        return new UsageAdmission(lease, CreateStatus(usage), null);
+        return new UsageAdmission(lease, CreateStatus(usage, isUnlimited), null);
     }
 
     private UsageAdmission Reject(
@@ -170,10 +179,11 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
         return usage;
     }
 
-    private UsageStatusResponse CreateStatus(ClientUsage usage)
+    private UsageStatusResponse CreateStatus(ClientUsage usage, bool hasUnlimitedQuota = false)
     {
-        var scanLimit = _options.Enabled ? Math.Max(0, _options.DailyScanLimit) : int.MaxValue;
-        var recipeLimit = _options.Enabled ? Math.Max(0, _options.DailyRecipeLimit) : int.MaxValue;
+        var isUnlimited = !_options.Enabled || hasUnlimitedQuota;
+        var scanLimit = isUnlimited ? int.MaxValue : Math.Max(0, _options.DailyScanLimit);
+        var recipeLimit = isUnlimited ? int.MaxValue : Math.Max(0, _options.DailyRecipeLimit);
         return new UsageStatusResponse(
             !_options.Enabled || _options.AiEnabled,
             NextResetUtc().ToString("O"),
@@ -183,7 +193,8 @@ public sealed class AiUsageGuard(IOptions<UsageControlOptions> options, TimeProv
             usage.Recipes,
             recipeLimit,
             Math.Max(0, recipeLimit - usage.Recipes),
-            _options.AllowTestReset);
+            _options.AllowTestReset,
+            isUnlimited);
     }
 
     private DateTimeOffset NextResetUtc() =>

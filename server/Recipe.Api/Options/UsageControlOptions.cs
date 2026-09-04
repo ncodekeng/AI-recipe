@@ -8,7 +8,7 @@ public sealed class UsageControlOptions
     public bool AiEnabled { get; init; } = true;
     public bool AllowTestReset { get; init; }
     public int DailyScanLimit { get; init; } = 10;
-    public int DailyRecipeLimit { get; init; } = 3;
+    public int DailyRecipeLimit { get; init; } = 300;
     public decimal EstimatedScanCostUsd { get; init; } = 0.02m;
     public decimal EstimatedRecipeCostUsd { get; init; } = 0.05m;
     public decimal GlobalDailyBudgetUsd { get; init; } = 50m;

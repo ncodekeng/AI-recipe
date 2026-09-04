@@ -1,8 +1,14 @@
+[CmdletBinding()]
+param(
+    [ValidateSet('Debug', 'Release')]
+    [string]$Configuration = 'Release'
+)
+
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $apiProject = Join-Path $projectRoot 'server\Recipe.Api'
-$apiAssembly = Join-Path $apiProject 'bin\Debug\net10.0\Recipe.Api.dll'
+$apiAssembly = Join-Path $apiProject "bin\$Configuration\net10.0\Recipe.Api.dll"
 if (-not (Test-Path -LiteralPath $apiAssembly)) {
     throw 'Build the API before running the smoke test.'
 }
@@ -13,7 +19,9 @@ $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
 $listener.Stop()
 $baseUrl = "http://localhost:$port"
 $previousAspNetCoreUrls = $env:ASPNETCORE_URLS
+$previousDailyRecipeLimit = $env:UsageControl__DailyRecipeLimit
 $env:ASPNETCORE_URLS = $baseUrl
+$env:UsageControl__DailyRecipeLimit = '3'
 $apiProcess = Start-Process dotnet -ArgumentList @($apiAssembly) -WorkingDirectory $apiProject -WindowStyle Hidden -PassThru
 
 try {
@@ -190,4 +198,5 @@ finally {
         Stop-Process -Id $apiProcess.Id -Force
     }
     $env:ASPNETCORE_URLS = $previousAspNetCoreUrls
+    $env:UsageControl__DailyRecipeLimit = $previousDailyRecipeLimit
 }

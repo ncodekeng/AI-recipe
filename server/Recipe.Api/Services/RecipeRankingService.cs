@@ -45,7 +45,8 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
     public IReadOnlyList<RecipeSuggestion> Rank(
         IEnumerable<RecipeSuggestion> recipes,
         IEnumerable<IngredientInput> pantry,
-        IEnumerable<Guid>? recentlyShownRecipeIds = null)
+        IEnumerable<Guid>? recentlyShownRecipeIds = null,
+        bool onlyUseAvailableIngredients = false)
     {
         var recentIds = recentlyShownRecipeIds?.ToHashSet() ?? [];
         var candidates = recipes
@@ -66,6 +67,13 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
                     recentIds.Contains(enriched.Id));
             })
             .ToList();
+
+        if (onlyUseAvailableIngredients)
+        {
+            candidates = candidates
+                .Where(item => MissingCount(item.Recipe) == 0)
+                .ToList();
+        }
 
         if (candidates.Count == 0)
         {

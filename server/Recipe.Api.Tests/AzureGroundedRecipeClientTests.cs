@@ -88,6 +88,33 @@ public sealed class AzureGroundedRecipeClientTests
     }
 
     [Fact]
+    public async Task Supplies_a_rough_fallback_pairing_when_azure_omits_one()
+    {
+        const string sourceUrl = "https://publisher.example.test/lamb-without-pairing";
+        var client = CreateClient(new CapturingHandler(Response(
+            sourceUrl,
+            sourceUrl,
+            string.Empty)));
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Contains("Merlot", Assert.Single(response.Recipes).WinePairing, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Suppresses_wine_pairing_for_a_sulphite_allergy()
+    {
+        const string sourceUrl = "https://publisher.example.test/sulphite-safe-lamb";
+        var client = CreateClient(new CapturingHandler(Response(sourceUrl, sourceUrl, "Syrah")));
+        var request = Request();
+        request.Allergens.Add("Sulphites");
+
+        var response = await client.FindRecipesAsync(request, CancellationToken.None);
+
+        Assert.Null(Assert.Single(response.Recipes).WinePairing);
+    }
+
+    [Fact]
     public async Task Preserves_the_traditional_tag_for_deterministic_ranking()
     {
         const string sourceUrl = "https://publisher.example.test/traditional-stew";
@@ -248,6 +275,42 @@ public sealed class AzureGroundedRecipeClientTests
         Assert.Contains("Never invent a URL", handler.RequestBody, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Cook_with_what_I_have_requires_zero_missing_non_staple_ingredients()
+    {
+        const string sourceUrl = "https://publisher.example.test/pantry-only";
+        var handler = new CapturingHandler(Response(sourceUrl, sourceUrl, "Pinot Noir"));
+        var client = CreateClient(handler);
+
+        await client.FindRecipesAsync(
+            Request(onlyUseAvailableIngredients: true),
+            CancellationToken.None);
+
+        Assert.Contains("Cook with what I have mode", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no missing non-staple ingredients", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        using var requestDocument = JsonDocument.Parse(handler.RequestBody);
+        using var inputDocument = JsonDocument.Parse(requestDocument.RootElement.GetProperty("input").GetString()!);
+        Assert.True(inputDocument.RootElement.GetProperty("onlyUseAvailableIngredients").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Unlimited_time_does_not_reject_a_sourced_recipe_or_send_a_numeric_limit()
+    {
+        const string sourceUrl = "https://publisher.example.test/slow-stew";
+        var handler = new CapturingHandler(Response(sourceUrl, sourceUrl, "Cabernet Sauvignon"));
+        var client = CreateClient(handler);
+
+        var response = await client.FindRecipesAsync(
+            Request(maxCookingMinutes: 0),
+            CancellationToken.None);
+
+        Assert.Single(response.Recipes);
+        using var requestDocument = JsonDocument.Parse(handler.RequestBody);
+        using var inputDocument = JsonDocument.Parse(requestDocument.RootElement.GetProperty("input").GetString()!);
+        Assert.Equal(JsonValueKind.Null, inputDocument.RootElement.GetProperty("maximumCookingMinutes").ValueKind);
+        Assert.Contains("Unlimited", inputDocument.RootElement.GetProperty("cookingTimeLimit").GetString(), StringComparison.Ordinal);
+    }
+
     private static AzureGroundedRecipeClient CreateClient(
         HttpMessageHandler handler,
         int minimumResultCount = 1,
@@ -279,12 +342,16 @@ public sealed class AzureGroundedRecipeClientTests
             NullLogger<AzureGroundedRecipeClient>.Instance);
     }
 
-    private static GenerateRecipesRequest Request(string diet = "Anything") => new()
+    private static GenerateRecipesRequest Request(
+        string diet = "Anything",
+        int maxCookingMinutes = 90,
+        bool onlyUseAvailableIngredients = false) => new()
     {
         Ingredients = [new IngredientInput("lamb", "500 g")],
         DietaryPreference = diet,
-        MaxCookingMinutes = 90,
-        Servings = 2
+        MaxCookingMinutes = maxCookingMinutes,
+        Servings = 2,
+        OnlyUseAvailableIngredients = onlyUseAvailableIngredients
     };
 
     private static string Response(

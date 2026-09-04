@@ -79,14 +79,24 @@ public sealed class RecipeCatalogService(
 
     private RecipeGenerationResponse RankAndLimit(
         RecipeGenerationResponse response,
-        GenerateRecipesRequest request) =>
-        response with
+        GenerateRecipesRequest request)
+    {
+        var recipes = ranking
+            .Rank(
+                response.Recipes,
+                request.Ingredients,
+                request.RecentlyShownRecipeIds,
+                request.OnlyUseAvailableIngredients)
+            .Take(6)
+            .ToList();
+        if (request.OnlyUseAvailableIngredients && recipes.Count == 0)
         {
-            Recipes = ranking
-                .Rank(response.Recipes, request.Ingredients, request.RecentlyShownRecipeIds)
-                .Take(6)
-                .ToList()
-        };
+            throw new RecipeSafetyException(
+                "No cited recipes used only the ingredients in your Kitchen Memory. Try Show all recipes or add another ingredient.");
+        }
+
+        return response with { Recipes = recipes };
+    }
 
     private async Task<RecipeGenerationResponse> ApplyCommercialImagesAsync(
         RecipeGenerationResponse response,

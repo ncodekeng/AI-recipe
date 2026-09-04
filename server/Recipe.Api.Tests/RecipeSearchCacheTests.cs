@@ -96,6 +96,31 @@ public sealed class RecipeSearchCacheTests
     }
 
     [Fact]
+    public void Cache_does_not_cross_recipe_scope()
+    {
+        var cache = CreateCache(new RecipeCacheOptions
+        {
+            Enabled = true,
+            ProviderPermissionConfirmed = true
+        });
+        var showAll = Request(["lamb"]);
+        var pantryOnly = new GenerateRecipesRequest
+        {
+            Ingredients = showAll.Ingredients,
+            Allergens = showAll.Allergens,
+            AvoidIngredients = showAll.AvoidIngredients,
+            DietaryPreference = showAll.DietaryPreference,
+            MaxCookingMinutes = showAll.MaxCookingMinutes,
+            Servings = showAll.Servings,
+            ShowPhotos = showAll.ShowPhotos,
+            OnlyUseAvailableIngredients = true
+        };
+        cache.Store(showAll, Response());
+
+        Assert.False(cache.TryGet(pantryOnly, out _));
+    }
+
+    [Fact]
     public void Cache_does_not_cross_recipe_providers()
     {
         var memory = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 });

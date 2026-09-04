@@ -73,6 +73,21 @@ public sealed class CommercialRecipeImageClientTests
     }
 
     [Fact]
+    public async Task Ignores_generic_style_words_when_matching_a_dish_photo()
+    {
+        var client = CreateClient(Response(
+            "CC0",
+            includeCreator: false,
+            title: "File:Chicken_and_peppers.jpg"));
+
+        var image = await client.FindAsync(
+            "One Pan Baked Chicken and Peppers",
+            CancellationToken.None);
+
+        Assert.NotNull(image);
+    }
+
+    [Fact]
     public async Task Development_flag_returns_a_relevant_unverified_test_image()
     {
         var client = CreateClient(

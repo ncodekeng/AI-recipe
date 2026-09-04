@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Recipe.Api.Models;
@@ -13,6 +11,7 @@ namespace Recipe.Api.Controllers;
 public sealed class PromptAdminController(
     PromptConfigurationStore prompts,
     IOptions<PromptAdminOptions> options,
+    AdminSessionService adminSessions,
     ILogger<PromptAdminController> logger) : ControllerBase
 {
     private const string AdminKeyHeader = "X-Plate-Admin-Key";
@@ -91,7 +90,7 @@ public sealed class PromptAdminController(
 
     private ActionResult? AuthorizeRequest()
     {
-        if (!_options.Enabled || string.IsNullOrWhiteSpace(_options.ApiKey))
+        if (!adminSessions.IsConfigured)
         {
             return NotFound(new ProblemDetails
             {
@@ -101,10 +100,13 @@ public sealed class PromptAdminController(
             });
         }
 
+        if (adminSessions.IsAuthenticated(HttpContext))
+        {
+            return null;
+        }
+
         var supplied = Request.Headers[AdminKeyHeader].FirstOrDefault() ?? string.Empty;
-        var expectedHash = SHA256.HashData(Encoding.UTF8.GetBytes(_options.ApiKey));
-        var suppliedHash = SHA256.HashData(Encoding.UTF8.GetBytes(supplied));
-        return CryptographicOperations.FixedTimeEquals(expectedHash, suppliedHash)
+        return adminSessions.TryAuthenticate(HttpContext, supplied)
             ? null
             : Unauthorized(new ProblemDetails
             {

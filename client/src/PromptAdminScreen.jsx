@@ -6,7 +6,7 @@ const EMPTY_PROMPTS = {
   recipeRecommendationPrompt: '',
 }
 
-export default function PromptAdminScreen({ onClose }) {
+export default function PromptAdminScreen({ onClose, onAuthenticated }) {
   const [adminKey, setAdminKey] = useState('')
   const [settings, setSettings] = useState(null)
   const [draft, setDraft] = useState(EMPTY_PROMPTS)
@@ -52,6 +52,8 @@ export default function PromptAdminScreen({ onClose }) {
     setNotice('')
     try {
       applySettings(await getAdminPrompts(adminKey))
+      setAdminKey('')
+      onAuthenticated?.()
     } catch (requestError) {
       setError(requestError.message)
     } finally {
@@ -65,7 +67,7 @@ export default function PromptAdminScreen({ onClose }) {
     setError('')
     setNotice('')
     try {
-      const next = await updateAdminPrompts(adminKey, draft)
+      const next = await updateAdminPrompts(draft)
       applySettings(next)
       setNotice('Prompts saved. New scans and recipe searches will use this configuration.')
     } catch (requestError) {
@@ -82,7 +84,7 @@ export default function PromptAdminScreen({ onClose }) {
     setError('')
     setNotice('')
     try {
-      const next = await resetAdminPrompts(adminKey)
+      const next = await resetAdminPrompts()
       applySettings(next)
       setNotice('Built-in prompt defaults restored.')
     } catch (requestError) {
@@ -121,7 +123,7 @@ export default function PromptAdminScreen({ onClose }) {
           <form className="admin-unlock" onSubmit={handleUnlock}>
             <div>
               <h2>Administrator access</h2>
-              <p>The key is checked by the API and kept only in this open browser screen.</p>
+              <p>The key is checked once by the API. A protected admin session then enables unlimited testing.</p>
             </div>
             <label htmlFor="admin-key">Prompt-admin key</label>
             <div className="admin-key-row">
@@ -143,6 +145,7 @@ export default function PromptAdminScreen({ onClose }) {
           </form>
         ) : (
           <form className="prompt-editor" onSubmit={handleSave}>
+            <p className="admin-session-note">Administrator session active · AI test attempts are unlimited while this session remains valid.</p>
             <section className="prompt-panel">
               <div className="prompt-panel-heading">
                 <div><span>01</span><h2>Ingredient recognition</h2></div>

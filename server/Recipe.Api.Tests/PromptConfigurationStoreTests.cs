@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Recipe.Api.Controllers;
@@ -44,6 +45,7 @@ public sealed class PromptConfigurationStoreTests : IDisposable
         var controller = new PromptAdminController(
             CreateStore(options),
             options,
+            CreateAdminSessions(options),
             NullLogger<PromptAdminController>.Instance)
         {
             ControllerContext = new ControllerContext
@@ -68,9 +70,11 @@ public sealed class PromptConfigurationStoreTests : IDisposable
             StoragePath = StoragePath
         });
         var store = CreateStore(options);
+        var adminSessions = CreateAdminSessions(options);
         var controller = new PromptAdminController(
             store,
             options,
+            adminSessions,
             NullLogger<PromptAdminController>.Instance)
         {
             ControllerContext = new ControllerContext
@@ -90,6 +94,36 @@ public sealed class PromptConfigurationStoreTests : IDisposable
         Assert.IsType<Recipe.Api.Models.AiPromptSettingsResponse>(response.Value);
         Assert.False(store.Current.UsingDefaults);
         Assert.True(File.Exists(StoragePath));
+        Assert.Contains(
+            AdminSessionService.CookieName,
+            controller.Response.Headers.SetCookie.ToString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "httponly",
+            controller.Response.Headers.SetCookie.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Protected_admin_cookie_authenticates_without_resending_the_key()
+    {
+        var options = Microsoft.Extensions.Options.Options.Create(new PromptAdminOptions
+        {
+            Enabled = true,
+            ApiKey = "correct-secret",
+            SessionHours = 8,
+            StoragePath = StoragePath
+        });
+        var adminSessions = CreateAdminSessions(options);
+        var loginContext = new DefaultHttpContext();
+
+        Assert.True(adminSessions.TryAuthenticate(loginContext, "correct-secret"));
+        var setCookie = loginContext.Response.Headers.SetCookie.ToString();
+        Assert.DoesNotContain("correct-secret", setCookie, StringComparison.Ordinal);
+
+        var authenticatedContext = new DefaultHttpContext();
+        authenticatedContext.Request.Headers.Cookie = setCookie.Split(';', 2)[0];
+        Assert.True(adminSessions.IsAuthenticated(authenticatedContext));
     }
 
     public void Dispose()
@@ -120,4 +154,10 @@ public sealed class PromptConfigurationStoreTests : IDisposable
             new TestHostEnvironment(),
             TimeProvider.System,
             NullLogger<PromptConfigurationStore>.Instance);
+
+    private static AdminSessionService CreateAdminSessions(
+        Microsoft.Extensions.Options.IOptions<PromptAdminOptions> options) => new(
+            options,
+            new EphemeralDataProtectionProvider(),
+            TimeProvider.System);
 }

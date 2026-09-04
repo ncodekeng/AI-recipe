@@ -16,7 +16,9 @@ public sealed class CommercialRecipeImageClient(
 {
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
-        "and", "with", "the", "for", "from", "into", "style", "recipe"
+        "and", "with", "the", "for", "from", "into", "style", "recipe",
+        "one", "pan", "pot", "baked", "roasted", "creamy", "easy", "quick",
+        "simple", "homemade", "skillet", "traybake", "dinner"
     };
 
     private readonly CommercialImageOptions _options = options.Value.CommercialImages;
@@ -208,9 +210,12 @@ public sealed class CommercialRecipeImageClient(
         }
 
         var pageWords = Words(pageTitle);
-        var requiredMatches = dishWords.Count <= 4
-            ? dishWords.Count
-            : (int)Math.Ceiling(dishWords.Count * 0.75);
+        var requiredMatches = dishWords.Count switch
+        {
+            <= 2 => dishWords.Count,
+            <= 5 => (int)Math.Ceiling(dishWords.Count * 0.6),
+            _ => (int)Math.Ceiling(dishWords.Count * 0.5)
+        };
         return dishWords.Count(word => pageWords.Contains(word)) >= requiredMatches;
     }
 
