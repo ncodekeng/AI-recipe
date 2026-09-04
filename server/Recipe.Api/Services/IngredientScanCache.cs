@@ -17,7 +17,9 @@ public sealed class IngredientScanCache(
     private readonly string _providerIdentity = string.Join(
         '|',
         options.Value.Provider.Trim().ToLowerInvariant(),
-        options.Value.AzureOpenAI.Deployment.Trim().ToLowerInvariant());
+        options.Value.AzureOpenAI.Deployment.Trim().ToLowerInvariant(),
+        options.Value.AzureOpenAI.ImageDetail.Trim().ToLowerInvariant(),
+        options.Value.AzureOpenAI.MaxOutputTokensPerImage.ToString());
 
     public bool TryGet(
         string clientKey,
@@ -45,7 +47,8 @@ public sealed class IngredientScanCache(
         IngredientAnalysisResponse response)
     {
         if (!_options.Enabled ||
-            !response.Provider.Equals("Azure OpenAI", StringComparison.OrdinalIgnoreCase))
+            !response.Provider.Equals("Azure OpenAI", StringComparison.OrdinalIgnoreCase) ||
+            response.FailedPhotos is { Count: > 0 })
         {
             return;
         }
@@ -63,7 +66,7 @@ public sealed class IngredientScanCache(
     private string BuildKey(string clientKey, IReadOnlyList<UploadedPhoto> photos)
     {
         using var incrementalHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        Append(incrementalHash, "plate-scan-v1");
+        Append(incrementalHash, "plate-scan-v2-per-image");
         Append(incrementalHash, clientKey);
         Append(incrementalHash, _providerIdentity);
         Append(incrementalHash, prompts.Current.Revision);

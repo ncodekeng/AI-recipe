@@ -958,7 +958,10 @@ export default function App() {
       const result = await analyzePhotos(photos.map((photo) => photo.file))
       if (!result.ingredients.length) {
         setIngredients([])
-        setError('No clear food items were found. Try a brighter, closer photo of the shelves or worktop.')
+        setNotice(result.notice || '')
+        setError(result.failedPhotos?.length
+          ? 'No ingredients could be confirmed from the photos Azure completed. Retry the failed photos or scan again with brighter, closer images.'
+          : 'No clear food items were found. Try a brighter, closer photo of the shelves or worktop.')
         return
       }
       const rememberedIngredients = mergeKitchenMemory(ingredients, result.ingredients)
@@ -967,8 +970,11 @@ export default function App() {
       const ignoredNotice = result.ignoredPhotos?.length
         ? `${result.ignoredPhotos.length} photo${result.ignoredPhotos.length === 1 ? ' was' : 's were'} ignored because no clear food was found.`
         : ''
+      const failedNotice = result.failedPhotos?.length && !result.notice
+        ? `${result.failedPhotos.length} photo${result.failedPhotos.length === 1 ? ' could' : 's could'} not be analysed. Retry ${result.failedPhotos.length === 1 ? 'it' : 'them'} for a more complete Kitchen Memory.`
+        : ''
       const memoryNotice = `${rememberedIngredients.length} ingredient${rememberedIngredients.length === 1 ? '' : 's'} saved in Kitchen Memory.`
-      setNotice([result.notice, ignoredNotice, memoryNotice].filter(Boolean).join(' '))
+      setNotice([result.notice, ignoredNotice, failedNotice, memoryNotice].filter(Boolean).join(' '))
       requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (requestError) {
       setError(requestError.message)

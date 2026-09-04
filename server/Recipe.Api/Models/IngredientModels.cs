@@ -14,6 +14,7 @@ public sealed record IngredientAnalysisResponse(
     IReadOnlyList<DetectedIngredient> Ingredients,
     string Provider,
     string? Notice = null,
-    IReadOnlyList<string>? IgnoredPhotos = null);
+    IReadOnlyList<string>? IgnoredPhotos = null,
+    IReadOnlyList<string>? FailedPhotos = null);
 
 public sealed record IngredientInput(string Name, string Quantity);

@@ -43,6 +43,19 @@ public sealed class IngredientScanCacheTests
     }
 
     [Fact]
+    public void Partial_results_are_not_cached()
+    {
+        var cache = CreateCache();
+        var photo = Photo("fridge.jpg", [9, 10, 11]);
+        cache.Store(
+            "client-one",
+            [photo],
+            Response() with { FailedPhotos = ["freezer.jpg"] });
+
+        Assert.False(cache.TryGet("client-one", [photo], out _));
+    }
+
+    [Fact]
     public void Cache_does_not_cross_prompt_revisions()
     {
         var prompts = new TestPromptProvider();

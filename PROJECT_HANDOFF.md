@@ -1,6 +1,6 @@
 # PLATE / AI Recipe Project Handoff
 
-Last updated: 2026-09-02
+Last updated: 2026-09-04
 
 This file is the portable context for continuing the project with a different Codex account. Read this file, `README.md`, and `git status` before changing anything. Do not discard existing uncommitted work.
 
@@ -185,7 +185,7 @@ The user must never go directly from uncertain image recognition to recipes with
 ### P0 launch scope
 
 - Done locally: mobile-friendly web UI; multiple photos; previews/removal/type and size validation.
-- Done locally: credential-free demo and Azure multimodal recognition with confidence, quantity, manual edit/add/remove, empty-result guidance, ignored-photo reporting, and experimental frozen-meal classification.
+- Done locally: credential-free demo and high-detail per-photo Azure multimodal recognition with bounded parallel calls, deterministic cross-photo merging, partial-photo failure reporting, confidence, quantity, manual edit/add/remove, empty-result guidance, ignored-photo reporting, and experimental frozen-meal classification.
 - Done locally: structured allergens, custom avoid list, diet, servings, and maximum time.
 - Done locally: Azure web-grounded recipe search with citation enforcement, optional Edamam provider boundary, no invented fallback, deterministic safety validation, missing ingredient UI, source links, and conditional Edamam attribution.
 - Done locally: persistent browser Kitchen Memory, sourced bookmarks, recent search/result history, basic repeat-result diversification, feedback API/UI, timeouts and failure states.

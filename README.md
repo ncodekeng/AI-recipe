@@ -128,11 +128,16 @@ $env:FoodAi__Provider = 'AzureOpenAI'
 $env:FoodAi__AzureOpenAI__Endpoint = 'https://YOUR-RESOURCE.openai.azure.com'
 $env:FoodAi__AzureOpenAI__ApiKey = 'YOUR-KEY'
 $env:FoodAi__AzureOpenAI__Deployment = 'YOUR-DEPLOYMENT-NAME'
+$env:FoodAi__AzureOpenAI__ImageDetail = 'high'
+$env:FoodAi__AzureOpenAI__MaxOutputTokensPerImage = '4000'
+$env:FoodAi__AzureOpenAI__MaxParallelImages = '2'
 $env:RecipeCatalog__Provider = 'AzureWebSearch'
 dotnet run --project server/Recipe.Api
 ```
 
-Ingredient recognition uses `/openai/v1/chat/completions`. Recipe discovery uses `/openai/v1/responses` with `web_search` forced on every request. The same Azure endpoint, key, and deployment settings are used for both paths. Confirm that the selected model and Azure region support image input, Responses, and web search. Secrets must remain in environment variables, Azure Key Vault references, or local user-secrets and must never be committed.
+Ingredient recognition uses `/openai/v1/chat/completions`. Each uploaded photo is inspected in its own high-detail request, with two requests running concurrently by default; successful photo results are merged by normalized ingredient name, and a failure on one photo no longer discards detections from the others. `MaxOutputTokensPerImage` is clamped to 800-6000 and `MaxParallelImages` to 1-6. This is more accurate for crowded shelves but can use more image tokens and provider calls than the previous combined low-detail request, so tune `UsageControl__EstimatedScanCostUsd` and the Azure budget alert using measured staging usage.
+
+Recipe discovery uses `/openai/v1/responses` with `web_search` forced on every request. The same Azure endpoint, key, and deployment settings are used for both paths. Confirm that the selected model and Azure region support image input, Responses, and web search. Secrets must remain in environment variables, Azure Key Vault references, or local user-secrets and must never be committed.
 
 `FoodAi__UseDemoFallback` defaults to `true` for presentations. Set it to `false` when Azure failures should be visible instead of switching to demo recognition.
 
@@ -207,7 +212,7 @@ Sourced saves retain only a small local bookmark (title, publisher, and source U
 
 ### Seven-day scan and recipe caches
 
-Successful Azure ingredient scans are cached for the same anonymous browser and photo content for up to 168 hours. A cache hit returns the detected ingredient draft without calling Azure or using another scan allowance. Only the response is retained; uploaded photo bytes are not stored. The cache is in server memory, so an App Service recycle clears it.
+Successful Azure ingredient scans are cached for the same anonymous browser, recognition settings, prompt revision, and photo content for up to 168 hours. A cache hit returns the detected ingredient draft without calling Azure or using another scan allowance. Only the response is retained; uploaded photo bytes are not stored. The cache is in server memory, so an App Service recycle clears it. The per-photo high-detail rollout uses a new cache namespace, so older low-detail results cannot be reused.
 
 ```powershell
 $env:FoodAi__ScanCache__Enabled = 'true'
