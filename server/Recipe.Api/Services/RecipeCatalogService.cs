@@ -91,8 +91,13 @@ public sealed class RecipeCatalogService(
             .ToList();
         if (request.OnlyUseAvailableIngredients && recipes.Count == 0)
         {
-            throw new RecipeSafetyException(
-                "No cited recipes used only the ingredients in your Kitchen Memory. Try Show all recipes or add another ingredient.");
+            return response with
+            {
+                Recipes = [],
+                Notice = AppendNotice(
+                    response.Notice,
+                    "No recipes found using only what you have.")
+            };
         }
 
         return response with { Recipes = recipes };

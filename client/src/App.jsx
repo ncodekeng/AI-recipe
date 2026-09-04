@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { analyzePhotos, createDeliverooBasket, findRecipePhotos, generateRecipes, getStatus, getUsage, resetUsage, submitFeedback } from './api.js'
 import {
   clearLocalData,
@@ -26,6 +26,13 @@ import {
   removeSavedRecipe,
   toggleSavedRecipe,
 } from './library.js'
+import {
+  getRecipeSearchEmptyState,
+  INITIAL_RECIPE_SEARCH_STATE,
+  RECIPE_MODES,
+  recipeSearchReducer,
+  usesOnlyAvailableIngredients,
+} from './recipeSearchState.js'
 
 const ALLERGENS = [
   'Peanuts',
@@ -825,8 +832,11 @@ export default function App() {
   const [showRecipePhotos, setShowRecipePhotos] = useState(() => typeof INITIAL_PREFERENCES.showRecipePhotos === 'boolean'
     ? INITIAL_PREFERENCES.showRecipePhotos
     : DEFAULT_PREFERENCES.showRecipePhotos)
-  const [onlyUseAvailableIngredients, setOnlyUseAvailableIngredients] = useState(false)
-  const [recipes, setRecipes] = useState([])
+  const [recipeSearch, dispatchRecipeSearch] = useReducer(
+    recipeSearchReducer,
+    INITIAL_RECIPE_SEARCH_STATE,
+  )
+  const { mode: recipeMode, recipes, hasCompletedSearch } = recipeSearch
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [safetyNote, setSafetyNote] = useState('')
   const [provider, setProvider] = useState('Checking…')
@@ -848,11 +858,12 @@ export default function App() {
   const resultsRef = useRef(null)
   const photoUrlsRef = useRef(new Set())
 
-  const currentStep = recipes.length > 0 ? 3 : reviewStarted ? 2 : 1
+  const currentStep = hasCompletedSearch ? 3 : reviewStarted ? 2 : 1
   const validIngredients = useMemo(
     () => ingredients.filter((item) => item.name.trim()),
     [ingredients],
   )
+  const recipeSearchEmptyState = getRecipeSearchEmptyState(recipeSearch, busy, error)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -890,9 +901,9 @@ export default function App() {
   }, [busy])
 
   function invalidateRecipeResults() {
-    setRecipes([])
+    dispatchRecipeSearch({ type: 'invalidate' })
     setSelectedRecipe(null)
-    setOnlyUseAvailableIngredients(false)
+    setSafetyNote('')
     setNotice('')
   }
 
@@ -986,15 +997,13 @@ export default function App() {
       : [...current, allergen])
   }
 
-  async function handleGenerate(
-    availableIngredientsOnly = onlyUseAvailableIngredients,
-    preserveCurrentResults = false,
-  ) {
+  async function handleGenerate(requestedMode = recipeMode) {
     if (!validIngredients.length) return
     setReviewStarted(true)
     setBusy('generating')
-    if (!preserveCurrentResults) setRecipes([])
+    dispatchRecipeSearch({ type: 'searchStarted' })
     setSelectedRecipe(null)
+    setSafetyNote('')
     setError('')
     setNotice('')
     try {
@@ -1006,11 +1015,11 @@ export default function App() {
         maxCookingMinutes: Number(maxCookingMinutes),
         servings: Number(servings),
         showPhotos: showRecipePhotos,
-        onlyUseAvailableIngredients: availableIngredientsOnly,
+        onlyUseAvailableIngredients: usesOnlyAvailableIngredients(requestedMode),
         recentlyShownRecipeIds: getRecentlyShownRecipeIds(history),
       }
       const result = await generateRecipes(request)
-      setRecipes(result.recipes)
+      dispatchRecipeSearch({ type: 'searchSucceeded', recipes: result.recipes })
       setSafetyNote(result.safetyNote)
       setProvider(result.provider)
       setNotice(result.notice || '')
@@ -1026,13 +1035,11 @@ export default function App() {
     }
   }
 
-  async function handleRecipeScopeChange(nextValue) {
-    if (nextValue === onlyUseAvailableIngredients || busy) return
+  async function handleRecipeScopeChange(nextMode) {
+    if (nextMode === recipeMode || busy) return
 
-    const previousValue = onlyUseAvailableIngredients
-    setOnlyUseAvailableIngredients(nextValue)
-    const succeeded = await handleGenerate(nextValue, true)
-    if (!succeeded) setOnlyUseAvailableIngredients(previousValue)
+    dispatchRecipeSearch({ type: 'modeRequested', mode: nextMode })
+    await handleGenerate(nextMode)
   }
 
   async function handlePhotoPreferenceChange(enabled) {
@@ -1052,7 +1059,7 @@ export default function App() {
         ...recipe,
         ...(photosById.get(recipe.id) || {}),
       }))
-      setRecipes(applyPhotos)
+      dispatchRecipeSearch({ type: 'replaceRecipes', recipes: applyPhotos(recipes) })
       setSelectedRecipe((current) => current ? applyPhotos([current])[0] : current)
       const foundCount = photoResults.filter((photo) => photo.imageUrl).length
       setNotice(foundCount > 0
@@ -1295,12 +1302,12 @@ export default function App() {
 
           {busy === 'generating' && <LoadingExperience mode="generating" />}
 
-          {recipes.length > 0 && (
+          {hasCompletedSearch && (
             <section className="results-section" ref={resultsRef}>
               <div className="results-heading">
                 <div>
                   <p className="eyebrow">Made for your kitchen</p>
-                  <h2>{recipes.length === 1 ? 'One lovely possibility' : `${recipes.length} lovely possibilities`}</h2>
+                  <h2>{recipes.length === 0 ? 'Let’s widen the search' : recipes.length === 1 ? 'One lovely possibility' : `${recipes.length} lovely possibilities`}</h2>
                   <p>Matched to what you have, your preferences, and the time you want to spend.</p>
                 </div>
                 <span className="section-number">03</span>
@@ -1308,43 +1315,58 @@ export default function App() {
               <div className="recipe-scope-panel">
                 <div>
                   <strong>Choose your recipe range</strong>
-                  <span>{onlyUseAvailableIngredients ? 'Only recipes needing no extra non-staple ingredients.' : 'Includes inspiring recipes with a few missing ingredients.'}</span>
+                  <span>{usesOnlyAvailableIngredients(recipeMode) ? 'Only recipes needing no extra non-staple ingredients.' : 'Includes inspiring recipes with a few missing ingredients.'}</span>
                 </div>
                 <div className="recipe-scope-toggle" role="group" aria-label="Recipe range">
                   <button
                     type="button"
-                    aria-pressed={onlyUseAvailableIngredients}
+                    aria-pressed={usesOnlyAvailableIngredients(recipeMode)}
                     disabled={Boolean(busy)}
-                    onClick={() => handleRecipeScopeChange(true)}
+                    onClick={() => handleRecipeScopeChange(RECIPE_MODES.AVAILABLE_ONLY)}
                   >
                     Cook with what I have
                   </button>
                   <button
                     type="button"
-                    aria-pressed={!onlyUseAvailableIngredients}
+                    aria-pressed={!usesOnlyAvailableIngredients(recipeMode)}
                     disabled={Boolean(busy)}
-                    onClick={() => handleRecipeScopeChange(false)}
+                    onClick={() => handleRecipeScopeChange(RECIPE_MODES.ALL)}
                   >
                     Show all recipes
                   </button>
                 </div>
               </div>
-              {error && <p className="results-inline-error">{error}</p>}
-              <div className="recipe-grid">
-                {recipes.map((recipe, index) => (
-                  <RecipeCard
-                    recipe={recipe}
-                    onOpen={setSelectedRecipe}
-                    onSave={toggleSaved}
-                    saved={savedRecipes.some((item) => item.id === recipe.id)}
-                    showRecipePhotos={showRecipePhotos}
-                    isTopPick={index === 0}
-                    key={recipe.id}
-                  />
-                ))}
-              </div>
-              {provider === 'Edamam' && <EdamamAttribution />}
-              <div className="safety-note results-safety"><Icon name="shield" size={18} /><p>{safetyNote}</p></div>
+              {error && recipes.length > 0 && <p className="results-inline-error">{error}</p>}
+              {recipeSearchEmptyState ? (
+                <div className="recipe-mode-empty" role={error ? 'alert' : 'status'}>
+                  <strong>{recipeSearchEmptyState.title}</strong>
+                  <p>{recipeSearchEmptyState.message}</p>
+                  <div>
+                    {recipeSearchEmptyState.canRetry && (
+                      <button type="button" disabled={Boolean(busy)} onClick={() => handleGenerate(recipeMode)}>Try again</button>
+                    )}
+                    {recipeSearchEmptyState.canShowAll && (
+                      <button type="button" disabled={Boolean(busy)} onClick={() => handleRecipeScopeChange(RECIPE_MODES.ALL)}>Show all recipes</button>
+                    )}
+                  </div>
+                </div>
+              ) : recipes.length > 0 ? (
+                <div className="recipe-grid">
+                  {recipes.map((recipe, index) => (
+                    <RecipeCard
+                      recipe={recipe}
+                      onOpen={setSelectedRecipe}
+                      onSave={toggleSaved}
+                      saved={savedRecipes.some((item) => item.id === recipe.id)}
+                      showRecipePhotos={showRecipePhotos}
+                      isTopPick={index === 0}
+                      key={recipe.id}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {recipes.length > 0 && provider === 'Edamam' && <EdamamAttribution />}
+              {recipes.length > 0 && <div className="safety-note results-safety"><Icon name="shield" size={18} /><p>{safetyNote}</p></div>}
             </section>
           )}
         </section>

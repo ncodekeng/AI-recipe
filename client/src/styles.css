@@ -1689,14 +1689,19 @@ main {
 
 .recipe-scope-toggle {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   gap: 5px;
   padding: 5px;
   border-radius: 14px;
   background: #ead2ce;
+  overflow: hidden;
 }
 
 .recipe-scope-toggle button {
+  min-width: 0;
   min-height: 48px;
   padding: 10px 14px;
   border: 0;
@@ -1706,6 +1711,8 @@ main {
   font: inherit;
   font-size: 12px;
   font-weight: 750;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
@@ -1731,6 +1738,62 @@ main {
   padding: 10px 13px;
   border-radius: 10px;
   background: #fff0ed;
+}
+
+.recipe-mode-empty {
+  display: grid;
+  justify-items: start;
+  gap: 9px;
+  padding: 25px;
+  border: 1px solid #efd6d1;
+  border-radius: 18px;
+  background: #fffaf8;
+}
+
+.recipe-mode-empty > strong {
+  color: #65342e;
+  font-family: var(--display);
+  font-size: clamp(25px, 3vw, 34px);
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+.recipe-mode-empty > p {
+  max-width: 620px;
+  margin: 0;
+  color: #806d68;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.recipe-mode-empty > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 5px;
+}
+
+.recipe-mode-empty button {
+  min-height: 44px;
+  padding: 10px 17px;
+  border: 1px solid #d94f43;
+  border-radius: 11px;
+  background: white;
+  color: #a23f36;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.recipe-mode-empty button:last-child {
+  background: #d94f43;
+  color: white;
+}
+
+.recipe-mode-empty button:focus-visible {
+  outline: 3px solid rgba(217, 79, 67, 0.27);
+  outline-offset: 2px;
 }
 
 .recipe-grid {
@@ -3369,7 +3432,7 @@ footer p {
   }
 
   .recipe-scope-toggle {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .recipe-card:nth-child(3):last-child {
@@ -3595,5 +3658,16 @@ footer p {
 
   .prompt-panel textarea {
     min-height: 260px;
+  }
+}
+
+@media (max-width: 360px) {
+  .recipe-scope-toggle {
+    grid-template-columns: 1fr;
+  }
+
+  .recipe-mode-empty > div,
+  .recipe-mode-empty button {
+    width: 100%;
   }
 }
