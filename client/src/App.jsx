@@ -28,6 +28,7 @@ import {
 } from './library.js'
 import {
   getRecipeSearchEmptyState,
+  getRecipesForMode,
   INITIAL_RECIPE_SEARCH_STATE,
   RECIPE_MODES,
   recipeSearchReducer,
@@ -837,7 +838,7 @@ export default function App() {
     recipeSearchReducer,
     INITIAL_RECIPE_SEARCH_STATE,
   )
-  const { mode: recipeMode, recipes, hasCompletedSearch } = recipeSearch
+  const { mode: recipeMode, recipes, availableOnlyRecipes, hasCompletedSearch } = recipeSearch
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [safetyNote, setSafetyNote] = useState('')
   const [provider, setProvider] = useState('Checking…')
@@ -864,7 +865,15 @@ export default function App() {
     () => ingredients.filter((item) => item.name.trim()),
     [ingredients],
   )
-  const recipeSearchEmptyState = getRecipeSearchEmptyState(recipeSearch, busy, error)
+  const visibleRecipes = useMemo(
+    () => getRecipesForMode(recipes, recipeMode, availableOnlyRecipes),
+    [recipes, availableOnlyRecipes, recipeMode],
+  )
+  const recipeSearchEmptyState = getRecipeSearchEmptyState(
+    { ...recipeSearch, recipes: visibleRecipes },
+    busy,
+    error,
+  )
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1004,13 +1013,15 @@ export default function App() {
       : [...current, allergen])
   }
 
-  async function handleGenerate(requestedMode = recipeMode) {
+  async function runRecipeSearch(onlyUseAvailableIngredients, preserveExistingResults) {
     if (!validIngredients.length) return
     setReviewStarted(true)
     setBusy('generating')
-    dispatchRecipeSearch({ type: 'searchStarted' })
+    if (!preserveExistingResults) {
+      dispatchRecipeSearch({ type: 'searchStarted' })
+      setSafetyNote('')
+    }
     setSelectedRecipe(null)
-    setSafetyNote('')
     setError('')
     setNotice('')
     try {
@@ -1022,11 +1033,14 @@ export default function App() {
         maxCookingMinutes: Number(maxCookingMinutes),
         servings: Number(servings),
         showPhotos: showRecipePhotos,
-        onlyUseAvailableIngredients: usesOnlyAvailableIngredients(requestedMode),
+        onlyUseAvailableIngredients,
         recentlyShownRecipeIds: getRecentlyShownRecipeIds(history),
       }
       const result = await generateRecipes(request)
-      dispatchRecipeSearch({ type: 'searchSucceeded', recipes: result.recipes })
+      dispatchRecipeSearch({
+        type: preserveExistingResults ? 'availableOnlySearchSucceeded' : 'searchSucceeded',
+        recipes: result.recipes,
+      })
       setSafetyNote(result.safetyNote)
       setProvider(result.provider)
       setNotice(result.notice || '')
@@ -1034,7 +1048,9 @@ export default function App() {
       requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
       return true
     } catch (requestError) {
-      dispatchRecipeSearch({ type: 'searchFailed' })
+      if (!preserveExistingResults) {
+        dispatchRecipeSearch({ type: 'searchFailed' })
+      }
       setError(requestError.message)
       return false
     } finally {
@@ -1043,24 +1059,33 @@ export default function App() {
     }
   }
 
-  async function handleRecipeScopeChange(nextMode) {
+  function handleGenerate() {
+    return runRecipeSearch(false, false)
+  }
+
+  function handleFindCompleteMatches() {
+    return runRecipeSearch(true, true)
+  }
+
+  function handleRecipeScopeChange(nextMode) {
     if (nextMode === recipeMode || busy) return
 
+    setSelectedRecipe(null)
+    setError('')
     dispatchRecipeSearch({ type: 'modeRequested', mode: nextMode })
-    await handleGenerate(nextMode)
   }
 
   async function handlePhotoPreferenceChange(enabled) {
     setReviewStarted(true)
     setShowRecipePhotos(enabled)
-    if (!enabled || recipes.length === 0) return
+    if (!enabled || visibleRecipes.length === 0) return
 
     setBusy('photos')
     setError('')
     setNotice('Finding verified recipe photos…')
     try {
       const photoResults = await findRecipePhotos(
-        recipes.map(({ id, title }) => ({ id, title })),
+        visibleRecipes.map(({ id, title }) => ({ id, title })),
       )
       const photosById = new Map(photoResults.map((photo) => [photo.id, photo]))
       const applyPhotos = (currentRecipes) => currentRecipes.map((recipe) => ({
@@ -1068,6 +1093,10 @@ export default function App() {
         ...(photosById.get(recipe.id) || {}),
       }))
       dispatchRecipeSearch({ type: 'replaceRecipes', recipes: applyPhotos(recipes) })
+      dispatchRecipeSearch({
+        type: 'replaceAvailableOnlyRecipes',
+        recipes: applyPhotos(availableOnlyRecipes),
+      })
       setSelectedRecipe((current) => current ? applyPhotos([current])[0] : current)
       const foundCount = photoResults.filter((photo) => photo.imageUrl).length
       setNotice(foundCount > 0
@@ -1315,7 +1344,7 @@ export default function App() {
               <div className="results-heading">
                 <div>
                   <p className="eyebrow">Made for your kitchen</p>
-                  <h2>{recipes.length === 0 ? 'Let’s widen the search' : recipes.length === 1 ? 'One lovely possibility' : `${recipes.length} lovely possibilities`}</h2>
+                  <h2>{visibleRecipes.length === 0 ? 'Let’s widen the search' : visibleRecipes.length === 1 ? 'One lovely possibility' : `${visibleRecipes.length} lovely possibilities`}</h2>
                   <p>Matched to what you have, your preferences, and the time you want to spend.</p>
                 </div>
                 <span className="section-number">03</span>
@@ -1344,23 +1373,32 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              {error && recipes.length > 0 && <p className="results-inline-error">{error}</p>}
+              {error && visibleRecipes.length > 0 && <p className="results-inline-error">{error}</p>}
               {recipeSearchEmptyState ? (
                 <div className="recipe-mode-empty" role={error ? 'alert' : 'status'}>
                   <strong>{recipeSearchEmptyState.title}</strong>
                   <p>{recipeSearchEmptyState.message}</p>
                   <div>
                     {recipeSearchEmptyState.canRetry && (
-                      <button type="button" disabled={Boolean(busy)} onClick={() => handleGenerate(recipeMode)}>Try again</button>
+                      <button
+                        type="button"
+                        disabled={Boolean(busy)}
+                        onClick={() => usesOnlyAvailableIngredients(recipeMode)
+                          ? handleFindCompleteMatches()
+                          : handleGenerate()}
+                      >
+                        {recipeSearchEmptyState.retryLabel || 'Try again'}
+                      </button>
                     )}
                     {recipeSearchEmptyState.canShowAll && (
                       <button type="button" disabled={Boolean(busy)} onClick={() => handleRecipeScopeChange(RECIPE_MODES.ALL)}>Show all recipes</button>
                     )}
                   </div>
+                  {recipeSearchEmptyState.retryCostNote && <small>{recipeSearchEmptyState.retryCostNote}</small>}
                 </div>
-              ) : recipes.length > 0 ? (
+              ) : visibleRecipes.length > 0 ? (
                 <div className="recipe-grid">
-                  {recipes.map((recipe, index) => (
+                  {visibleRecipes.map((recipe, index) => (
                     <RecipeCard
                       recipe={recipe}
                       onOpen={setSelectedRecipe}
@@ -1373,8 +1411,8 @@ export default function App() {
                   ))}
                 </div>
               ) : null}
-              {recipes.length > 0 && provider === 'Edamam' && <EdamamAttribution />}
-              {recipes.length > 0 && <div className="safety-note results-safety"><Icon name="shield" size={18} /><p>{safetyNote}</p></div>}
+              {visibleRecipes.length > 0 && provider === 'Edamam' && <EdamamAttribution />}
+              {visibleRecipes.length > 0 && <div className="safety-note results-safety"><Icon name="shield" size={18} /><p>{safetyNote}</p></div>}
             </section>
           )}
         </section>

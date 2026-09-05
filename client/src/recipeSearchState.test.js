@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   getRecipeSearchEmptyState,
+  getRecipesForMode,
   INITIAL_RECIPE_SEARCH_STATE,
   RECIPE_MODES,
   recipeSearchReducer,
@@ -37,11 +38,11 @@ test('the initial recipe mode is Show all recipes', () => {
   assert.equal(usesOnlyAvailableIngredients(INITIAL_RECIPE_SEARCH_STATE.mode), false)
 })
 
-test('Cook with what I have sets the backend available-only flag', () => {
+test('Cook with what I have activates the local complete-match filter', () => {
   assert.equal(usesOnlyAvailableIngredients(RECIPE_MODES.AVAILABLE_ONLY), true)
 })
 
-test('Show all recipes clears the backend available-only flag', () => {
+test('Show all recipes disables the local complete-match filter', () => {
   assert.equal(usesOnlyAvailableIngredients(RECIPE_MODES.ALL), false)
 })
 
@@ -54,9 +55,11 @@ test('available-only zero results show the required empty state and exit action'
 
   const emptyState = getRecipeSearchEmptyState(state, '', '')
 
-  assert.equal(emptyState.title, 'No recipes found using only what you have.')
+  assert.equal(emptyState.title, 'No 100% matches in these results.')
   assert.equal(emptyState.canShowAll, true)
   assert.equal(emptyState.canRetry, true)
+  assert.equal(emptyState.retryLabel, 'Find 100% matches')
+  assert.equal(emptyState.retryCostNote, 'Uses 1 recipe search.')
 })
 
 test('ingredient invalidation clears stale recipes but preserves selected mode', () => {
@@ -81,7 +84,7 @@ test('a new search continues to use the mode preserved after ingredient edits', 
   assert.equal(usesOnlyAvailableIngredients(invalidated.mode), true)
 })
 
-test('switching modes updates selection and removes stale results immediately', () => {
+test('switching modes preserves the sourced result set', () => {
   const state = recipeSearchReducer({
     mode: RECIPE_MODES.ALL,
     recipes: [{ id: 'near-match' }],
@@ -89,19 +92,59 @@ test('switching modes updates selection and removes stale results immediately', 
   }, { type: 'modeRequested', mode: RECIPE_MODES.AVAILABLE_ONLY })
 
   assert.equal(state.mode, RECIPE_MODES.AVAILABLE_ONLY)
-  assert.deepEqual(state.recipes, [])
+  assert.deepEqual(state.recipes, [{ id: 'near-match' }])
   assert.equal(state.hasCompletedSearch, true)
 })
 
-test('loading a switched mode hides both stale results and a premature empty state', () => {
-  const state = recipeSearchReducer({
-    mode: RECIPE_MODES.ALL,
-    recipes: [{ id: 'old-result' }],
-    hasCompletedSearch: true,
-  }, { type: 'modeRequested', mode: RECIPE_MODES.AVAILABLE_ONLY })
+test('Cook with what I have locally selects only zero-missing recipes', () => {
+  const recipes = [
+    { id: 'complete', ingredientMatch: 100, missingIngredients: [] },
+    { id: 'near-match', ingredientMatch: 80, missingIngredients: [{ name: 'garlic' }] },
+    { id: 'fallback-complete', ingredientMatch: 100 },
+  ]
 
-  assert.deepEqual(state.recipes, [])
-  assert.equal(getRecipeSearchEmptyState(state, 'generating', ''), null)
+  assert.deepEqual(
+    getRecipesForMode(recipes, RECIPE_MODES.AVAILABLE_ONLY).map((recipe) => recipe.id),
+    ['complete', 'fallback-complete'],
+  )
+  assert.strictEqual(getRecipesForMode(recipes, RECIPE_MODES.ALL), recipes)
+})
+
+test('an explicit exact search preserves broad results and supplies the filtered view', () => {
+  const broadRecipes = [
+    { id: 'near-match', ingredientMatch: 80, missingIngredients: [{ name: 'garlic' }] },
+  ]
+  const state = recipeSearchReducer({
+    mode: RECIPE_MODES.AVAILABLE_ONLY,
+    recipes: broadRecipes,
+    availableOnlyRecipes: [],
+    hasCompletedSearch: true,
+  }, {
+    type: 'availableOnlySearchSucceeded',
+    recipes: [{ id: 'exact-match', ingredientMatch: 100, missingIngredients: [] }],
+  })
+
+  assert.strictEqual(state.recipes, broadRecipes)
+  assert.deepEqual(
+    getRecipesForMode(state.recipes, state.mode, state.availableOnlyRecipes).map((recipe) => recipe.id),
+    ['exact-match'],
+  )
+  assert.strictEqual(getRecipesForMode(state.recipes, RECIPE_MODES.ALL, state.availableOnlyRecipes), broadRecipes)
+})
+
+test('changing recipe range never starts another recipe search', () => {
+  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+  const handler = source.match(/function handleRecipeScopeChange[\s\S]*?\n  }\n\n  async function handlePhotoPreferenceChange/)?.[0] || ''
+
+  assert.match(handler, /dispatchRecipeSearch\(\{ type: 'modeRequested'/)
+  assert.doesNotMatch(handler, /handleGenerate|generateRecipes|await/)
+})
+
+test('only the explicit complete-match action requests exact recipes', () => {
+  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+
+  assert.match(source, /function handleGenerate\(\)\s*\{\s*return runRecipeSearch\(false, false\)/)
+  assert.match(source, /function handleFindCompleteMatches\(\)\s*\{\s*return runRecipeSearch\(true, true\)/)
 })
 
 test('mode search errors remain visible with retry and Show all actions', () => {

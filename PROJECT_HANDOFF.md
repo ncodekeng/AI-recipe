@@ -52,7 +52,7 @@ The Mise prototype already includes:
 - Manual ingredient edit, add, and removal
 - Allergies, dietary preferences, maximum time, and servings
 - Citation-verified sourced recipe suggestions and recipe details
-- Show-all recipe discovery by default, using compatible subsets from large Kitchen Memory lists
+- Show-all recipe discovery by default, using compatible subsets from large Kitchen Memory lists; the post-results pantry toggle locally filters 100% matches without another AI request and offers a clearly labelled optional exact-match search only when none are present
 - Missing ingredient highlighting and publisher attribution
 - Deterministic server-side allergen/diet validation after every provider response
 - Azure OpenAI boundary with demo fallback
