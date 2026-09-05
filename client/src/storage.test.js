@@ -54,6 +54,52 @@ test('new scans merge into Kitchen Memory without duplicate names', () => {
   delete globalThis.localStorage
 })
 
+test('semantic duplicates merge while meaningful colour variants remain separate', () => {
+  installLocalStorage()
+
+  const merged = mergeKitchenMemory(
+    [
+      { id: 'brown-eggs', name: 'Brown eggs', quantity: '6' },
+      { id: 'red-pepper', name: 'Red bell pepper', quantity: '1' },
+      { id: 'fresh-spinach', name: 'Fresh spinach', quantity: '1 bag' },
+      { id: 'sliced-bread', name: 'Sliced bread', quantity: '5 slices' },
+      { id: 'small-mustard', name: 'Dijon Mustard (small jar)', quantity: '1 jar' },
+    ],
+    [
+      { id: 'eggs', name: 'Eggs', quantity: '8' },
+      { id: 'yellow-pepper', name: 'Yellow bell pepper', quantity: '2' },
+      { id: 'spinach', name: 'Spinach', quantity: '2 bags' },
+      { id: 'packaged-bread', name: 'Packaged sliced bread', quantity: '1 pack' },
+      { id: 'large-mustard', name: 'Dijon Mustard (larger jar)', quantity: '1 jar' },
+    ],
+  )
+
+  assert.deepEqual(merged.map(({ name, quantity }) => ({ name, quantity })), [
+    { name: 'Eggs', quantity: '8' },
+    { name: 'Red bell pepper', quantity: '1' },
+    { name: 'Spinach', quantity: '2 bags' },
+    { name: 'Packaged sliced bread', quantity: '1 pack' },
+    { name: 'Dijon Mustard (larger jar)', quantity: '1 jar' },
+    { name: 'Yellow bell pepper', quantity: '2' },
+  ])
+  delete globalThis.localStorage
+})
+
+test('loading Kitchen Memory removes previously saved semantic duplicates', () => {
+  installLocalStorage()
+  globalThis.localStorage.setItem('plate.kitchen-memory.v1', JSON.stringify([
+    { id: 'old-eggs', name: 'Brown eggs', quantity: '6' },
+    { id: 'new-eggs', name: 'eggs', quantity: '8' },
+  ]))
+
+  const loaded = loadKitchenMemory()
+
+  assert.equal(loaded.length, 1)
+  assert.equal(loaded[0].name, 'eggs')
+  assert.equal(loaded[0].quantity, '8')
+  delete globalThis.localStorage
+})
+
 test('Kitchen Memory keeps up to 100 ingredients', () => {
   installLocalStorage()
 

@@ -8,7 +8,7 @@ This repository is the independently built, mobile-first implementation referenc
 - Azure OpenAI multimodal ingredient recognition, quantity estimates, confidence, irrelevant-photo filtering, and frozen-meal classification
 - A private per-browser seven-day Azure scan-result cache keyed by photo content, without retaining uploaded photo bytes
 - Credential-free deterministic demo recognition for local development and presentations
-- Required ingredient review with edit, add, remove, quantity correction, and up to 100 browser-persisted Kitchen Memory items
+- Required ingredient review with edit, add, remove, quantity correction, semantic duplicate cleanup, and up to 100 browser-persisted Kitchen Memory items
 - Fourteen UK allergens, custom avoided ingredients, diet, serving settings, and cooking limits through 4 hours or Unlimited
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
 - Azure Responses API web search for real, cited online recipes, with Edamam available as an optional catalogue provider
@@ -212,7 +212,7 @@ Sourced saves retain only a small local bookmark (title, publisher, and source U
 
 ### Seven-day scan and recipe caches
 
-Successful Azure ingredient scans are cached for the same anonymous browser, recognition settings, prompt revision, and photo content for up to 168 hours. A cache hit returns the detected ingredient draft without calling Azure or using another scan allowance. Only the response is retained; uploaded photo bytes are not stored. The cache is in server memory, so an App Service recycle clears it. The per-photo high-detail rollout uses a new cache namespace, so older low-detail results cannot be reused.
+Successful Azure ingredient scans are cached for the same anonymous browser, recognition settings, prompt revision, and photo content for up to 168 hours. A cache hit returns the detected ingredient draft without calling Azure or using another scan allowance. Only the response is retained; uploaded photo bytes are not stored. The cache is in server memory, so an App Service recycle clears it. The semantic-name rollout uses a new cache namespace, so older results containing duplicate or package-labelled names cannot be reused.
 
 ```powershell
 $env:FoodAi__ScanCache__Enabled = 'true'

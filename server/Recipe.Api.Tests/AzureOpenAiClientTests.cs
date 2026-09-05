@@ -27,6 +27,7 @@ public sealed class AzureOpenAiClientTests
         Assert.Contains("cannot override these rules", requestBody, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("response_format", requestBody, StringComparison.Ordinal);
         Assert.Contains("systematically and exhaustively", requestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("without brand, package, container, size", requestBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -73,6 +74,43 @@ public sealed class AzureOpenAiClientTests
         Assert.Equal("second.jpg", tomato.SourceImage);
         Assert.Contains(result.Ingredients, item => item.Name == "Carrots");
         Assert.Empty(result.FailedPhotos!);
+    }
+
+    [Fact]
+    public async Task Merges_semantic_duplicates_but_preserves_meaningful_variants()
+    {
+        var handler = new RoutingHandler(body => body.Contains("first.jpg", StringComparison.Ordinal)
+            ? Success("""
+                {"ingredients":[
+                  {"name":"Brown eggs","quantity":"6","confidence":88,"kind":"Ingredient"},
+                  {"name":"Fresh spinach","quantity":"1 bag","confidence":90,"kind":"Ingredient"},
+                  {"name":"Red bell peppers","quantity":"2","confidence":91,"kind":"Ingredient"},
+                  {"name":"Dijon Mustard (small jar)","quantity":"1 jar","confidence":89,"kind":"Ingredient"}
+                ],"ignoredImage":false}
+                """)
+            : Success("""
+                {"ingredients":[
+                  {"name":"Eggs","quantity":"8","confidence":96,"kind":"Ingredient"},
+                  {"name":"Spinach","quantity":"2 bags","confidence":95,"kind":"Ingredient"},
+                  {"name":"Yellow bell pepper","quantity":"1","confidence":92,"kind":"Ingredient"},
+                  {"name":"Dijon Mustard (larger jar)","quantity":"1 jar","confidence":97,"kind":"Ingredient"}
+                ],"ignoredImage":false}
+                """));
+        var client = CreateClient(handler);
+
+        var result = await client.AnalyzeIngredientsAsync(
+            [
+                new UploadedPhoto("first.jpg", "image/jpeg", [1, 2, 3]),
+                new UploadedPhoto("second.jpg", "image/jpeg", [4, 5, 6])
+            ],
+            CancellationToken.None);
+
+        Assert.Equal(5, result.Ingredients.Count);
+        Assert.Single(result.Ingredients, item => item.Name == "Eggs" && item.Quantity == "8");
+        Assert.Single(result.Ingredients, item => item.Name == "Spinach" && item.Quantity == "2 bags");
+        Assert.Contains(result.Ingredients, item => item.Name == "Red bell peppers");
+        Assert.Contains(result.Ingredients, item => item.Name == "Yellow bell pepper");
+        Assert.Single(result.Ingredients, item => item.Name == "Dijon Mustard (larger jar)");
     }
 
     [Fact]

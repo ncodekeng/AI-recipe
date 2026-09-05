@@ -17,6 +17,14 @@ public sealed class AzureOpenAiClient(
     {
         PropertyNameCaseInsensitive = true
     };
+    private static readonly HashSet<string> IngredientIdentityNoiseWords =
+    [
+        "big", "bigger", "block", "bottle", "bottles", "box", "fresh", "jar", "large",
+        "larger", "medium", "of", "pack", "package", "packaged", "piece", "pieces", "raw",
+        "slice", "slices", "sliced", "small", "smaller", "tub", "wheel"
+    ];
+    private static readonly HashSet<string> EggIdentityNoiseWords =
+        ["brown", "free", "range", "white"];
 
     private readonly AzureOpenAiOptions _settings = options.Value.AzureOpenAI;
 
@@ -107,6 +115,7 @@ public sealed class AzureOpenAiClient(
                        promptSettings.IngredientRecognitionPrompt + "\n\n" +
                        "Inspect this single photo systematically and exhaustively, moving shelf by shelf and foreground to background. " +
                        "List every distinct visibly supported edible ingredient or frozen meal, not merely a representative sample. " +
+                       "Use generic food names without brand, package, container, size, or speculative parenthetical wording; put amounts only in quantity. " +
                        "Keep different varieties, colours, and flavours separate. Combine only unmistakable duplicates within this photo. " +
                        "When visible food is uncertain, include it with a lower confidence rather than claiming certainty. " +
                        "Return JSON only as " +
@@ -281,13 +290,26 @@ public sealed class AzureOpenAiClient(
             cleaned.Append(char.IsLetterOrDigit(character) ? character : ' ');
         }
 
-        var tokens = cleaned.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length == 0)
+        var originalTokens = cleaned.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (originalTokens.Length == 0)
         {
             return name.Trim().ToLowerInvariant();
         }
 
+        var tokens = originalTokens
+            .Where(token => !IngredientIdentityNoiseWords.Contains(token))
+            .ToList();
+        if (tokens.Count == 0)
+        {
+            tokens.AddRange(originalTokens);
+        }
+
         tokens[^1] = Singularize(tokens[^1]);
+        if (tokens.Contains("egg", StringComparer.Ordinal))
+        {
+            tokens.RemoveAll(EggIdentityNoiseWords.Contains);
+        }
+
         return string.Join(' ', tokens);
     }
 

@@ -66,7 +66,7 @@ public sealed class IngredientScanCache(
     private string BuildKey(string clientKey, IReadOnlyList<UploadedPhoto> photos)
     {
         using var incrementalHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        Append(incrementalHash, "plate-scan-v2-per-image");
+        Append(incrementalHash, "plate-scan-v3-semantic-names");
         Append(incrementalHash, clientKey);
         Append(incrementalHash, _providerIdentity);
         Append(incrementalHash, prompts.Current.Revision);

@@ -995,7 +995,12 @@ export default function App() {
   }
 
   function updateIngredient(id, field, value) {
-    updateKitchenMemory((current) => current.map((item) => item.id === id ? { ...item, [field]: value } : item))
+    updateKitchenMemory((current) => {
+      const updated = current.map((item) => item.id === id ? { ...item, [field]: value } : item)
+      return field === 'name' && value.trim()
+        ? mergeKitchenMemory([], updated)
+        : updated
+    })
   }
 
   function addIngredient() {
