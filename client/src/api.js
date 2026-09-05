@@ -80,10 +80,12 @@ export async function analyzePhotos(files) {
   const form = new FormData()
   files.forEach((file) => form.append('photos', file))
 
+  const timeoutMs = Math.max(90_000, Math.min(10 * 60_000, files.length * 15_000))
+
   return request('/api/ingredients/analyze', {
     method: 'POST',
     body: form,
-  })
+  }, timeoutMs)
 }
 
 export async function generateRecipes(payload) {

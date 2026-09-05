@@ -4,7 +4,7 @@ export const RECIPE_MODES = Object.freeze({
 })
 
 export const INITIAL_RECIPE_SEARCH_STATE = Object.freeze({
-  mode: RECIPE_MODES.AVAILABLE_ONLY,
+  mode: RECIPE_MODES.ALL,
   recipes: [],
   hasCompletedSearch: false,
 })
@@ -32,6 +32,12 @@ export function recipeSearchReducer(state, action) {
       return {
         ...state,
         recipes: Array.isArray(action.recipes) ? action.recipes : [],
+        hasCompletedSearch: true,
+      }
+    case 'searchFailed':
+      return {
+        ...state,
+        recipes: [],
         hasCompletedSearch: true,
       }
     case 'replaceRecipes':

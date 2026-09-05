@@ -294,6 +294,80 @@ public sealed class AzureGroundedRecipeClientTests
     }
 
     [Fact]
+    public async Task Cook_with_what_I_have_retries_when_the_first_cited_recipe_needs_an_extra_ingredient()
+    {
+        const string nearMatchUrl = "https://publisher.example.test/eggs-with-garlic";
+        const string exactMatchUrl = "https://publisher.example.test/simple-scrambled-eggs";
+        var handler = new CapturingHandler(
+            ResponseWithIngredients(nearMatchUrl, "Eggs with garlic", "eggs", "garlic"),
+            ResponseWithIngredients(exactMatchUrl, "Simple scrambled eggs", "eggs", "unsalted butter", "whole milk"));
+        var client = CreateClient(handler, minimumResultCount: 1, maxSearchAttempts: 2);
+        var request = KitchenMemoryRequest();
+
+        var response = await client.FindRecipesAsync(request, CancellationToken.None);
+
+        var recipe = Assert.Single(response.Recipes);
+        Assert.Equal(exactMatchUrl, recipe.SourceUrl);
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Contains(nearMatchUrl, handler.RequestBodies[1], StringComparison.Ordinal);
+        Assert.Contains("different subset", handler.RequestBodies[1], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Search_input_canonicalizes_scanned_container_names()
+    {
+        const string sourceUrl = "https://publisher.example.test/simple-scrambled-eggs";
+        var handler = new CapturingHandler(
+            ResponseWithIngredients(sourceUrl, "Simple scrambled eggs", "eggs", "unsalted butter", "whole milk"));
+        var client = CreateClient(handler);
+
+        await client.FindRecipesAsync(KitchenMemoryRequest(), CancellationToken.None);
+
+        using var requestDocument = JsonDocument.Parse(handler.RequestBody);
+        using var inputDocument = JsonDocument.Parse(requestDocument.RootElement.GetProperty("input").GetString()!);
+        var availableNames = inputDocument.RootElement
+            .GetProperty("availableIngredientNames")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .ToList();
+        Assert.Contains("egg", availableNames);
+        Assert.Contains("butter", availableNames);
+        Assert.Contains("milk", availableNames);
+        Assert.Contains("yogurt", availableNames);
+        Assert.Contains("mayonnaise", availableNames);
+        Assert.Contains("cream cheese", availableNames);
+        Assert.Contains("soy sauce", availableNames);
+        Assert.DoesNotContain("yogurt tub", availableNames);
+        Assert.Equal(
+            ["salt", "black pepper", "water", "olive oil", "cooking oil"],
+            inputDocument.RootElement.GetProperty("allowedPantryStaples").EnumerateArray().Select(item => item.GetString()));
+    }
+
+    [Fact]
+    public async Task Show_all_searches_large_kitchen_memory_as_ingredient_subsets()
+    {
+        const string sourceUrl = "https://publisher.example.test/chicken-pepper-skillet";
+        var handler = new CapturingHandler(
+            ResponseWithIngredients(sourceUrl, "Chicken pepper skillet", "chicken breast", "bell pepper", "onion"));
+        var client = CreateClient(handler);
+
+        var response = await client.FindRecipesAsync(
+            KitchenMemoryRequest(onlyUseAvailableIngredients: false),
+            CancellationToken.None);
+
+        Assert.Single(response.Recipes);
+        Assert.Contains("pantry options", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("requirement to find one dish", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        using var requestDocument = JsonDocument.Parse(handler.RequestBody);
+        using var inputDocument = JsonDocument.Parse(requestDocument.RootElement.GetProperty("input").GetString()!);
+        Assert.False(inputDocument.RootElement.GetProperty("onlyUseAvailableIngredients").GetBoolean());
+        Assert.Contains(
+            "do not require one recipe to contain the entire pantry",
+            inputDocument.RootElement.GetProperty("ingredientSubsetStrategy").GetString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Unlimited_time_does_not_reject_a_sourced_recipe_or_send_a_numeric_limit()
     {
         const string sourceUrl = "https://publisher.example.test/slow-stew";
@@ -334,11 +408,14 @@ public sealed class AzureGroundedRecipeClientTests
                 MaxSearchAttempts = maxSearchAttempts
             }
         });
+        var normalizer = new IngredientNormalizer();
         return new AzureGroundedRecipeClient(
             new HttpClient(handler),
             foodOptions,
             catalogOptions,
             prompts ?? new TestPromptProvider(),
+            normalizer,
+            new RecipeRankingService(normalizer),
             NullLogger<AzureGroundedRecipeClient>.Instance);
     }
 
@@ -350,6 +427,45 @@ public sealed class AzureGroundedRecipeClientTests
         Ingredients = [new IngredientInput("lamb", "500 g")],
         DietaryPreference = diet,
         MaxCookingMinutes = maxCookingMinutes,
+        Servings = 2,
+        OnlyUseAvailableIngredients = onlyUseAvailableIngredients
+    };
+
+    private static GenerateRecipesRequest KitchenMemoryRequest(bool onlyUseAvailableIngredients = true) => new()
+    {
+        Ingredients =
+        [
+            new IngredientInput("red bell pepper", "2"),
+            new IngredientInput("yellow bell pepper", "1"),
+            new IngredientInput("onion", "1 onion"),
+            new IngredientInput("tomato", "2"),
+            new IngredientInput("potato", "3"),
+            new IngredientInput("spinach", "1 small bunch"),
+            new IngredientInput("raw chicken breast", "1 piece"),
+            new IngredientInput("sliced bread", "5 slices"),
+            new IngredientInput("brown eggs", "8 eggs"),
+            new IngredientInput("pickled vegetables jar", "1 jar"),
+            new IngredientInput("butter block", "1 block"),
+            new IngredientInput("bottle of milk", "1 bottle"),
+            new IngredientInput("yogurt tub", "1 tub"),
+            new IngredientInput("mustard jar", "1 jar"),
+            new IngredientInput("mayonnaise jar", "1 jar"),
+            new IngredientInput("cream cheese box", "1 box"),
+            new IngredientInput("black olives jar", "1 jar"),
+            new IngredientInput("sliced cheese pack", "1 pack"),
+            new IngredientInput("packaged cooked meat slices", "1 pack"),
+            new IngredientInput("small round cheese wheel", "1 wheel"),
+            new IngredientInput("bottle of soy sauce", "1 bottle"),
+            new IngredientInput("bottle of salad dressing", "1 bottle"),
+            new IngredientInput("bottle of juice", "4 bottles"),
+            new IngredientInput("lemon", "1 lemon"),
+            new IngredientInput("red apple", "1 apple"),
+            new IngredientInput("cucumber", "1 cucumber"),
+            new IngredientInput("packaged nuts or granola bowl", "1 bowl"),
+            new IngredientInput("packaged sliced bread", "1 pack")
+        ],
+        DietaryPreference = "Anything",
+        MaxCookingMinutes = 45,
         Servings = 2,
         OnlyUseAvailableIngredients = onlyUseAvailableIngredients
     };
@@ -399,6 +515,44 @@ public sealed class AzureGroundedRecipeClientTests
             ? $"I found a cited recipe.\n```json\n{recipePayload}\n```"
             : recipePayload;
         return TextResponse(citedUrl, outputText);
+    }
+
+    private static string ResponseWithIngredients(
+        string citedUrl,
+        string title,
+        params string[] ingredients)
+    {
+        var recipePayload = JsonSerializer.Serialize(new
+        {
+            recipes = new[]
+            {
+                new
+                {
+                    title,
+                    cookingMinutes = 15,
+                    difficulty = "Easy",
+                    cuisine = "British",
+                    servings = 2,
+                    tags = new[] { "Quick" },
+                    ingredients = ingredients.Select(name => new
+                    {
+                        amount = "As listed",
+                        name,
+                        quantity = (double?)null,
+                        unit = (string?)null,
+                        originalText = name
+                    }),
+                    cookingGuideSteps = new[]
+                    {
+                        "Prepare the listed ingredients as described by the source.",
+                        "Cook the dish and verify eggs or meat are safely cooked before serving."
+                    },
+                    sourceUrl = citedUrl,
+                    winePairing = "A light sparkling wine is a rough match."
+                }
+            }
+        });
+        return TextResponse(citedUrl, recipePayload);
     }
 
     private static string TextResponse(string citedUrl, string outputText) =>

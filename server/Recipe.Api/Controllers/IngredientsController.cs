@@ -12,12 +12,13 @@ public sealed class IngredientsController(
     AdminSessionService adminSessions,
     AiUsageGuard usageGuard) : ControllerBase
 {
-    private const int MaxPhotoCount = 6;
+    private const int MaxPhotoCount = 50;
     private const long MaxPhotoBytes = 5 * 1024 * 1024;
+    private const long MaxRequestBodyBytes = (MaxPhotoCount * MaxPhotoBytes) + (1024 * 1024);
 
     [HttpPost("analyze")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(30 * 1024 * 1024)]
+    [RequestSizeLimit(MaxRequestBodyBytes)]
     public async Task<ActionResult<IngredientAnalysisResponse>> Analyze(
         [FromForm] List<IFormFile> photos,
         CancellationToken cancellationToken)
@@ -26,7 +27,7 @@ public sealed class IngredientsController(
         {
             return BadRequest(new ProblemDetails
             {
-                Title = "Choose between 1 and 6 photos.",
+                Title = $"Choose between 1 and {MaxPhotoCount} photos.",
                 Detail = "A few clear, well-lit photos give the best result."
             });
         }

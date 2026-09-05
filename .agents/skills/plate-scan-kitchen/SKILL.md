@@ -16,7 +16,7 @@ Keep this stage focused on converting temporary kitchen photos into an editable 
 
 ## Preserve these invariants
 
-1. Accept one to six JPEG, PNG, GIF, or WebP images, with a maximum of 5 MB per image and signature validation on the server.
+1. Accept one to 50 JPEG, PNG, GIF, or WebP images, with a maximum of 5 MB per image and signature validation on the server.
 2. Keep photo bytes in memory only for the active request. Do not add photo persistence, logs containing image data, or history entries containing photos.
 3. Use Azure OpenAI vision to inspect actual pixels in live mode. Demo recognition is allowed only as the explicitly configured prototype fallback.
 4. Return ingredient name, estimated quantity, confidence, source image, and classification data needed for irrelevant or frozen-item handling.

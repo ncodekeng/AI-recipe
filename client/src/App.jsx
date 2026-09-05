@@ -63,6 +63,7 @@ const DIETARY_OPTIONS = [
 ]
 
 const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+const MAX_PHOTO_COUNT = 50
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 const COOKING_TIME_OPTIONS = [20, 30, 45, 60, 90, 120, 180, 240, 0]
 const DEFAULT_PREFERENCES = {
@@ -438,7 +439,7 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
           type="file"
           accept="image/*"
           capture="environment"
-          disabled={busy || photos.length >= 6}
+          disabled={busy || photos.length >= MAX_PHOTO_COUNT}
           onChange={(event) => {
             selectFiles(event.target.files)
             event.target.value = ''
@@ -450,7 +451,7 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
           type="file"
           accept="image/*"
           multiple
-          disabled={busy || photos.length >= 6}
+          disabled={busy || photos.length >= MAX_PHOTO_COUNT}
           onChange={(event) => {
             selectFiles(event.target.files)
             event.target.value = ''
@@ -461,10 +462,10 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
           <strong>Add kitchen photos</strong>
           <span>Fridge, cupboard or countertop</span>
           <div className="photo-source-actions">
-            <button type="button" onClick={() => cameraInputRef.current?.click()} disabled={busy || photos.length >= 6}>
+            <button type="button" onClick={() => cameraInputRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTO_COUNT}>
               <Icon name="camera" size={15} /> Take photo
             </button>
-            <button type="button" onClick={() => libraryInputRef.current?.click()} disabled={busy || photos.length >= 6}>
+            <button type="button" onClick={() => libraryInputRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTO_COUNT}>
               <Icon name="upload" size={15} /> Choose photos
             </button>
           </div>
@@ -487,7 +488,7 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
               </button>
             </figure>
           ))}
-          {photos.length < 6 && (
+          {photos.length < MAX_PHOTO_COUNT && (
             <button className="add-photo" type="button" onClick={() => libraryInputRef.current?.click()} disabled={busy}>
               <Icon name="plus" size={22} />
               <span>Choose more</span>
@@ -914,9 +915,9 @@ export default function App() {
     if (supported.length !== files.length) {
       setError('Use JPEG, PNG, GIF, or WebP photos no larger than 5 MB each.')
     }
-    const remaining = 6 - photos.length
+    const remaining = MAX_PHOTO_COUNT - photos.length
     const accepted = supported.slice(0, remaining)
-    if (supported.length > remaining) setError('You can add up to 6 photos at a time.')
+    if (supported.length > remaining) setError(`You can add up to ${MAX_PHOTO_COUNT} photos at a time.`)
     const additions = accepted.map((file) => {
       const url = URL.createObjectURL(file)
       photoUrlsRef.current.add(url)
@@ -1033,6 +1034,7 @@ export default function App() {
       requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
       return true
     } catch (requestError) {
+      dispatchRecipeSearch({ type: 'searchFailed' })
       setError(requestError.message)
       return false
     } finally {

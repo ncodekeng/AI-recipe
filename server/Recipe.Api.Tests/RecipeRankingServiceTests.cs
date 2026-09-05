@@ -17,6 +17,43 @@ public sealed class RecipeRankingServiceTests
         Assert.True(_normalizer.Matches(pantry, required));
     }
 
+    [Theory]
+    [InlineData("yogurt tub", "Greek yoghurt")]
+    [InlineData("mayonnaise jar", "mayo")]
+    [InlineData("cream cheese box", "cream cheese")]
+    [InlineData("bottle of soy sauce", "soy sauce")]
+    [InlineData("butter block", "unsalted butter")]
+    [InlineData("bottle of milk", "whole milk")]
+    public void Normalizer_matches_scanned_container_names(string pantry, string required)
+    {
+        Assert.True(_normalizer.Matches(pantry, required));
+    }
+
+    [Fact]
+    public void Reported_kitchen_memory_supports_a_simple_complete_recipe()
+    {
+        var service = new RecipeRankingService(_normalizer);
+        var pantry = new[]
+        {
+            new IngredientInput("brown eggs", "8 eggs"),
+            new IngredientInput("butter block", "1 block"),
+            new IngredientInput("bottle of milk", "1 bottle"),
+            new IngredientInput("sliced bread", "5 slices")
+        };
+
+        var match = service.CalculateMatch(
+            pantry,
+            [
+                new RecipeIngredient("4", "eggs"),
+                new RecipeIngredient("1 tbsp", "unsalted butter"),
+                new RecipeIngredient("2 tbsp", "whole milk"),
+                new RecipeIngredient("to taste", "salt")
+            ]);
+
+        Assert.Equal(100, match.MatchPercentage);
+        Assert.Empty(match.MissingIngredients);
+    }
+
     [Fact]
     public void Normalizer_does_not_treat_meat_as_stock()
     {

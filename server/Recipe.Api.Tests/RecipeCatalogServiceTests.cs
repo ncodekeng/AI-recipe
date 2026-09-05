@@ -92,6 +92,8 @@ public sealed class RecipeCatalogServiceTests
                 foodAiOptions,
                 options,
                 prompts,
+                normalizer,
+                new RecipeRankingService(normalizer),
                 NullLogger<AzureGroundedRecipeClient>.Instance),
             new EdamamRecipeClient(recipeHttpClient, options),
             new CommercialRecipeImageClient(

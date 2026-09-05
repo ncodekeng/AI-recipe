@@ -42,6 +42,9 @@ public sealed partial class IngredientNormalizer
         ("cheddar", ["cheddar cheese", "cheddar"]),
         ("mozzarella", ["mozzarella cheese", "mozzarella"]),
         ("parmesan", ["parmesan cheese", "parmigiano reggiano", "parmesan"]),
+        ("cream cheese", ["cream cheese"]),
+        ("yogurt", ["greek yoghurt", "greek yogurt", "yoghurt", "yogurt"]),
+        ("mayonnaise", ["mayonnaise", "mayo"]),
         ("cheese", ["cheese"]),
         ("salt", ["sea salt", "kosher salt", "table salt", "salt"]),
         ("water", ["boiling water", "cold water", "warm water", "water"])
@@ -55,10 +58,11 @@ public sealed partial class IngredientNormalizer
 
     private static readonly HashSet<string> NoiseWords =
     [
-        "a", "an", "and", "as", "boneless", "chopped", "diced", "fresh", "freshly", "gram", "grams",
-        "g", "kg", "large", "medium", "minced", "ml", "litre", "litres", "optional", "peeled", "piece",
-        "pieces", "pinch", "raw", "roughly", "skinless", "sliced", "small", "tablespoon", "tablespoons",
-        "tbsp", "teaspoon", "teaspoons", "tsp", "to", "taste", "cup", "cups"
+        "a", "an", "and", "as", "block", "bottle", "bottles", "bowl", "box", "can", "carton", "container",
+        "boneless", "chopped", "diced", "fresh", "freshly", "gram", "grams", "g", "jar", "kg", "large",
+        "medium", "minced", "ml", "of", "litre", "litres", "optional", "pack", "package", "packaged",
+        "peeled", "piece", "pieces", "pinch", "raw", "roughly", "skinless", "sliced", "small", "tablespoon",
+        "tablespoons", "tbsp", "teaspoon", "teaspoons", "tin", "tsp", "to", "taste", "tub", "wheel", "cup", "cups"
     ];
 
     public string Normalize(string value)

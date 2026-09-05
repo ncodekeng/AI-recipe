@@ -1,6 +1,6 @@
 # PLATE / AI Recipe Project Handoff
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 
 This file is the portable context for continuing the project with a different Codex account. Read this file, `README.md`, and `git status` before changing anything. Do not discard existing uncommitted work.
 
@@ -47,11 +47,12 @@ Always inspect and preserve any new working-tree changes before continuing.
 
 The Mise prototype already includes:
 
-- Multiple food-photo upload and previews
+- Up to 50 food-photo uploads with previews
 - Ingredient detection with confidence and estimated quantities
 - Manual ingredient edit, add, and removal
 - Allergies, dietary preferences, maximum time, and servings
 - Citation-verified sourced recipe suggestions and recipe details
+- Show-all recipe discovery by default, using compatible subsets from large Kitchen Memory lists
 - Missing ingredient highlighting and publisher attribution
 - Deterministic server-side allergen/diet validation after every provider response
 - Azure OpenAI boundary with demo fallback

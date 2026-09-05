@@ -15,6 +15,8 @@ public sealed class AzureGroundedRecipeClient(
     IOptions<FoodAiOptions> foodAiOptions,
     IOptions<RecipeCatalogOptions> catalogOptions,
     IAiPromptProvider prompts,
+    IngredientNormalizer normalizer,
+    RecipeRankingService ranking,
     ILogger<AzureGroundedRecipeClient> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -68,6 +70,8 @@ public sealed class AzureGroundedRecipeClient(
 
     private readonly AzureOpenAiOptions _settings = foodAiOptions.Value.AzureOpenAI;
     private readonly AzureWebSearchOptions _search = catalogOptions.Value.AzureWebSearch;
+    private static readonly string[] AllowedPantryStaples =
+        ["salt", "black pepper", "water", "olive oil", "cooking oil"];
 
     public bool IsConfigured => _settings.IsConfigured;
 
@@ -85,14 +89,12 @@ public sealed class AzureGroundedRecipeClient(
         var batchSize = Math.Clamp(_search.BatchSize, 1, 3);
         var maxSearchAttempts = Math.Clamp(_search.MaxSearchAttempts, 1, 4);
         var recipes = new List<RecipeSuggestion>();
+        var searchedSourceUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var partialSearchFailure = false;
 
         for (var attempt = 0; attempt < maxSearchAttempts && recipes.Count < minimumResultCount; attempt++)
         {
-            var excludedSourceUrls = recipes
-                .Select(recipe => recipe.SourceUrl!)
-                .Where(url => !string.IsNullOrWhiteSpace(url))
-                .ToList();
+            var excludedSourceUrls = searchedSourceUrls.ToList();
             var requestedBatchSize = Math.Min(batchSize, candidateLimit - recipes.Count);
             ParsedSearchResult searchResult;
             try
@@ -125,10 +127,31 @@ public sealed class AzureGroundedRecipeClient(
                 break;
             }
 
-            var mapped = searchResult.Payload.Recipes
+            var mappedCandidates = searchResult.Payload.Recipes
                 .Select(candidate => MapRecipe(candidate, request, searchResult.GroundedSources))
                 .Where(recipe => recipe is not null)
-                .Cast<RecipeSuggestion>();
+                .Cast<RecipeSuggestion>()
+                .ToList();
+
+            foreach (var candidate in mappedCandidates)
+            {
+                searchedSourceUrls.Add(candidate.SourceUrl!);
+            }
+
+            var mapped = request.OnlyUseAvailableIngredients
+                ? mappedCandidates
+                    .Where(recipe => ranking
+                        .CalculateMatch(request.Ingredients, recipe.Ingredients)
+                        .MissingIngredients.Count == 0)
+                    .ToList()
+                : mappedCandidates;
+
+            if (request.OnlyUseAvailableIngredients && mapped.Count < mappedCandidates.Count)
+            {
+                logger.LogInformation(
+                    "Discarded {RejectedCount} cited recipe candidates that required missing ingredients; continuing the exact-match search.",
+                    mappedCandidates.Count - mapped.Count);
+            }
 
             foreach (var recipe in mapped)
             {
@@ -144,6 +167,12 @@ public sealed class AzureGroundedRecipeClient(
 
         if (recipes.Count == 0)
         {
+            if (request.OnlyUseAvailableIngredients && searchedSourceUrls.Count > 0)
+            {
+                throw new RecipeSafetyException(
+                    "Azure found cited recipes, but each required at least one ingredient not in Kitchen Memory. Choose Show all recipes to see the closest matches.");
+            }
+
             throw new RecipeSafetyException(
                 "Azure did not return a recipe with a verifiable web-search citation. Try different ingredients or restrictions.");
         }
@@ -269,10 +298,20 @@ public sealed class AzureGroundedRecipeClient(
             ? """
               This request is in Cook with what I have mode. Return only source recipes whose non-staple
               ingredients are all present in the supplied ingredients. Do not return a recipe requiring any
-              missing non-staple ingredient. This rule overrides the general near-match ordering guidance.
+              missing non-staple ingredient. The only ingredients you may assume are the values in
+              allowedPantryStaples; garlic, herbs, spices other than black pepper, flour, sugar, sauces, stocks,
+              and garnishes must be present in availableIngredientNames or the recipe must be omitted.
+              A recipe may use any compatible subset of the supplied ingredients and does not need to use all
+              of them. Prefer established recipes with short ingredient lists. Check the source recipe's full
+              ingredient list against availableIngredientNames before returning it. This rule overrides the
+              general near-match ordering guidance.
               """
             : """
-              This request is in Show all recipes mode. Include practical near-matches as described above.
+              This request is in Show all recipes mode. The supplied ingredients are pantry options, not a
+              requirement to find one dish containing every item. Search with several small, compatible
+              ingredient subsets. Prefer practical source recipes using the largest useful subset of supplied
+              ingredients with no more than 3 missing non-staple ingredients when such recipes exist. Do not
+              fail merely because no single recipe uses the entire pantry.
               """;
         return $"""
             {Instructions}
@@ -336,6 +375,38 @@ public sealed class AzureGroundedRecipeClient(
         int searchAttempt,
         int requestedBatchSize)
     {
+        var searchIngredients = request.Ingredients
+            .Where(item => !string.IsNullOrWhiteSpace(item.Name))
+            .Select(item => new
+            {
+                DetectedName = item.Name.Trim(),
+                Name = normalizer.Normalize(item.Name),
+                Quantity = item.Quantity?.Trim() ?? string.Empty
+            })
+            .Where(item => !string.IsNullOrWhiteSpace(item.Name))
+            .GroupBy(item => item.Name, StringComparer.Ordinal)
+            .Select(group => new
+            {
+                name = group.Key,
+                detectedNames = group
+                    .Select(item => item.DetectedName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(4),
+                quantities = group
+                    .Select(item => item.Quantity)
+                    .Where(quantity => !string.IsNullOrWhiteSpace(quantity))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(4)
+            })
+            .Take(50)
+            .ToList();
+        var ingredientSubsetStrategy = request.OnlyUseAvailableIngredients
+            ? searchAttempt == 0
+                ? "Start with familiar, simple dishes using the strongest compatible subset of the available ingredients."
+                : "Try a different subset from the earlier batch, favouring recipes with the shortest complete ingredient lists."
+            : searchAttempt == 0
+                ? "Search several small compatible subsets; do not require one recipe to contain the entire pantry."
+                : "Search different compatible subsets from the earlier batch and prioritize at most 3 missing non-staple ingredients.";
         var input = new
         {
             task = request.OnlyUseAvailableIngredients
@@ -350,10 +421,10 @@ public sealed class AzureGroundedRecipeClient(
             minimumCandidateCount = requestedBatchSize,
             batchNumber = searchAttempt + 1,
             excludedSourceUrls = excludedSourceUrls.Take(12),
-            ingredients = request.Ingredients
-                .Where(item => !string.IsNullOrWhiteSpace(item.Name))
-                .Select(item => new { name = item.Name.Trim(), quantity = item.Quantity.Trim() })
-                .Take(50),
+            ingredients = searchIngredients,
+            availableIngredientNames = searchIngredients.Select(item => item.name),
+            allowedPantryStaples = AllowedPantryStaples,
+            ingredientSubsetStrategy,
             allergens = request.Allergens.Take(20),
             avoidIngredients = request.AvoidIngredients.Take(20),
             dietaryPreference = request.DietaryPreference.Trim(),

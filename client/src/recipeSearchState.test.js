@@ -32,9 +32,9 @@ test('App gates the accessible segmented control on completed results', () => {
   assert.match(source, />\s*Show all recipes\s*</)
 })
 
-test('the initial recipe mode is Cook with what I have', () => {
-  assert.equal(INITIAL_RECIPE_SEARCH_STATE.mode, RECIPE_MODES.AVAILABLE_ONLY)
-  assert.equal(usesOnlyAvailableIngredients(INITIAL_RECIPE_SEARCH_STATE.mode), true)
+test('the initial recipe mode is Show all recipes', () => {
+  assert.equal(INITIAL_RECIPE_SEARCH_STATE.mode, RECIPE_MODES.ALL)
+  assert.equal(usesOnlyAvailableIngredients(INITIAL_RECIPE_SEARCH_STATE.mode), false)
 })
 
 test('Cook with what I have sets the backend available-only flag', () => {
@@ -116,6 +116,25 @@ test('mode search errors remain visible with retry and Show all actions', () => 
   assert.equal(emptyState.message, 'Provider unavailable')
   assert.equal(emptyState.canRetry, true)
   assert.equal(emptyState.canShowAll, true)
+})
+
+test('an initial failed search exposes retry and Show all controls', () => {
+  const state = recipeSearchReducer(INITIAL_RECIPE_SEARCH_STATE, { type: 'searchFailed' })
+  const emptyState = getRecipeSearchEmptyState(state, '', 'No cited recipes were found')
+
+  assert.equal(state.hasCompletedSearch, true)
+  assert.deepEqual(state.recipes, [])
+  assert.equal(emptyState.message, 'No cited recipes were found')
+  assert.equal(emptyState.canRetry, true)
+  assert.equal(emptyState.canShowAll, false)
+})
+
+test('photo selection and additions allow up to 50 images', () => {
+  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+
+  assert.match(source, /const MAX_PHOTO_COUNT = 50/)
+  assert.match(source, /const remaining = MAX_PHOTO_COUNT - photos\.length/)
+  assert.doesNotMatch(source, /photos\.length >= 6|photos\.length < 6|6 - photos\.length/)
 })
 
 test('mobile recipe mode CSS prevents horizontal control overflow', () => {

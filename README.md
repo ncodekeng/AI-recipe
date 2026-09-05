@@ -4,7 +4,7 @@ This repository is the independently built, mobile-first implementation referenc
 
 ## What works now
 
-- One to six camera/gallery photos with previews, removal, signature validation, and no application-level photo storage
+- One to 50 camera/gallery photos with previews, removal, signature validation, and no application-level photo storage
 - Azure OpenAI multimodal ingredient recognition, quantity estimates, confidence, irrelevant-photo filtering, and frozen-meal classification
 - A private per-browser seven-day Azure scan-result cache keyed by photo content, without retaining uploaded photo bytes
 - Credential-free deterministic demo recognition for local development and presentations
@@ -17,7 +17,7 @@ This repository is the independently built, mobile-first implementation referenc
 - Commercial-use image lookup through Wikimedia Commons structured license metadata, with recipe-specific built-in artwork whenever no image can be verified
 - A persisted Show recipe photos switch that prevents remote image requests when disabled and can hydrate existing results without another Azure recipe search
 - Visible owned/missing ingredient matching, a primary Top Pick, and source-aware recipe details
-- A post-results **Cook with what I have / Show all recipes** control that defaults to cooking with the current kitchen, with zero-missing results enforced again by deterministic backend matching, mode-aware retries, and a clear no-match state
+- A post-results **Cook with what I have / Show all recipes** control that defaults to showing all practical matches, with zero-missing results enforced again by deterministic backend matching when the narrower mode is selected
 - Animated scan progress and responsive recipe-search skeletons for slower provider requests
 - An isolated Deliveroo grocery-basket contract with an honest manual handoff until partner basket access is approved
 - Lightweight source bookmarks and recent search/result history in browser storage
@@ -171,7 +171,7 @@ Use `/home/data/...` for a Linux App Service with persistent storage or `D:\home
 
 The default recipe path uses Azure's Responses API with the `web_search` tool. Azure searches current publisher pages and returns structured recipe metadata. PLATE accepts a result only when its exact HTTPS `sourceUrl` also appears in the search tool's returned sources or citation annotations. A URL written only by the model is rejected. Azure also writes a separate practical cooking guide, which the API marks `AiGenerated` and the UI labels as AI guidance rather than publisher instructions. The cited publisher page remains the canonical recipe and is linked at the end.
 
-For every non-halal Azure result the model is instructed to provide a short rough wine suggestion, but the recipe title, ingredient list, quantities, and source URL must come from one cited page. PLATE does not display an AI-written recipe summary. Halal-style searches do not request or return wine suggestions. Deterministic dietary and allergen validation still runs after Azure, because prompting is not a safety boundary. When available, valid results put the best sourced traditional dish requiring one to three missing non-staple ingredients first and the best no-missing recipe second. Remaining results are randomized, with recently displayed recipes moved later. After the first results, **Cook with what I have** makes a fresh sourced search and the backend discards every recipe with a missing non-staple ingredient; **Show all recipes** restores near-matches. Ingredient and preference edits clear stale results but preserve the selected mode for the next search. If available-only mode finds no exact kitchen match, the UI keeps the mode control visible and offers retry and **Show all recipes** actions.
+For every non-halal Azure result the model is instructed to provide a short rough wine suggestion, but the recipe title, ingredient list, quantities, and source URL must come from one cited page. PLATE does not display an AI-written recipe summary. Halal-style searches do not request or return wine suggestions. Deterministic dietary and allergen validation still runs after Azure, because prompting is not a safety boundary. When available, valid results put the best sourced traditional dish requiring one to three missing non-staple ingredients first and the best no-missing recipe second. Remaining results are randomized, with recently displayed recipes moved later. **Show all recipes** is the initial mode and tells Azure to treat a large Kitchen Memory as a menu of compatible ingredient subsets, not as a demand that one dish use every item. **Cook with what I have** makes a fresh sourced search and accepts only recipes with zero missing non-staple ingredients. Scanned packaging words such as `bottle`, `jar`, `tub`, `box`, and `pack` are normalized before search; rejected cited near-matches do not count toward the result target, so Azure continues with another ingredient subset instead of stopping with results that the backend will later remove. Ingredient and preference edits clear stale results but preserve the selected mode for the next search. If available-only mode finds no exact kitchen match, the UI keeps the mode control visible and offers retry and **Show all recipes** actions.
 
 Azure currently rejects JSON response modes on some Responses API requests that use `web_search`. PLATE therefore leaves the response format in its default text mode, instructs the model to return one JSON object, and parses that object after the search. Each call requests no more than three recipes so the JSON remains compact. If Azure returns prose or malformed JSON, PLATE retries that batch once with a stronger JSON-only instruction and accepts harmless trailing commas. Recipes are accepted only when their source URLs match that batch's real search sources or citation annotations.
 
@@ -249,7 +249,7 @@ Defaults are configured under `UsageControl` in `appsettings.json` and can be ov
 
 - 10 scans and 300 recipe requests per anonymous browser per UTC day during prototype testing
 - One active AI request per browser
-- 5 MB per image, 6 images, and 30 MB per request
+- 5 MB per image, up to 50 images, and approximately 251 MB per request including multipart overhead
 - USD 50 estimated global daily cutoff
 - `UsageControl__AiEnabled=false` emergency kill switch
 - A valid prompt-admin session has unlimited per-browser test attempts while still respecting the kill switch and global budget
@@ -289,7 +289,7 @@ The backend tests cover forced Azure web search, citation enforcement, strict HT
 - `GET /api/status` — AI and recipe-provider status
 - `GET /api/usage` — current anonymous daily allowance
 - `POST /api/usage/reset` — resets the current browser's counters only when explicitly enabled for local testing
-- `POST /api/ingredients/analyze` — multipart form with one to six `photos`
+- `POST /api/ingredients/analyze` — multipart form with one to 50 `photos`, each up to 5 MB
 - `POST /api/recipes/generate` — searches sourced recipes using corrected ingredients, restrictions, time, and servings
 - `POST /api/recipes/photos` — finds verified reusable Commons photos for up to six existing recipe results without another AI recipe request
 - `POST /api/grocery/deliveroo/basket` — prepares only the selected recipe's missing ingredients for the supported grocery handoff

@@ -98,7 +98,7 @@ public sealed class RecipeSearchCache
             .ToArray();
         var cacheIdentity = JsonSerializer.Serialize(new
         {
-            Version = 8,
+            Version = 10,
             Provider = _provider,
             PromptRevision = _prompts.Current.Revision,
             Ingredients = ingredients,
