@@ -1,7 +1,7 @@
 const PREFERENCES_KEY = 'plate.preferences.v1'
 const CLIENT_ID_KEY = 'plate.client-id'
 const KITCHEN_MEMORY_KEY = 'plate.kitchen-memory.v1'
-const MAX_KITCHEN_ITEMS = 50
+const MAX_KITCHEN_ITEMS = 100
 
 export function loadPreferences() {
   try {

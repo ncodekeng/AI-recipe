@@ -368,6 +368,27 @@ public sealed class AzureGroundedRecipeClientTests
     }
 
     [Fact]
+    public async Task Sends_up_to_100_kitchen_ingredients_to_Azure()
+    {
+        const string sourceUrl = "https://publisher.example.test/large-pantry-recipe";
+        var handler = new CapturingHandler(Response(sourceUrl, sourceUrl, "Pinot Noir"));
+        var client = CreateClient(handler);
+        var request = Request();
+        request.Ingredients.AddRange(Enumerable.Range(0, 99)
+            .Select(index => new IngredientInput(
+                $"ingredient z{(char)('a' + (index / 26))}{(char)('a' + (index % 26))}",
+                "1")));
+
+        await client.FindRecipesAsync(request, CancellationToken.None);
+
+        using var requestDocument = JsonDocument.Parse(handler.RequestBody);
+        using var inputDocument = JsonDocument.Parse(requestDocument.RootElement.GetProperty("input").GetString()!);
+        Assert.Equal(
+            GenerateRecipesRequest.MaxIngredientCount,
+            inputDocument.RootElement.GetProperty("ingredients").GetArrayLength());
+    }
+
+    [Fact]
     public async Task Unlimited_time_does_not_reject_a_sourced_recipe_or_send_a_numeric_limit()
     {
         const string sourceUrl = "https://publisher.example.test/slow-stew";

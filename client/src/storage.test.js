@@ -53,3 +53,20 @@ test('new scans merge into Kitchen Memory without duplicate names', () => {
   assert.equal(merged[1].name, 'Red wine')
   delete globalThis.localStorage
 })
+
+test('Kitchen Memory keeps up to 100 ingredients', () => {
+  installLocalStorage()
+
+  const ingredients = Array.from({ length: 101 }, (_, index) => ({
+    id: `ingredient-${index + 1}`,
+    name: `Ingredient ${index + 1}`,
+    quantity: '1',
+  }))
+
+  const saved = saveKitchenMemory(ingredients)
+
+  assert.equal(saved.length, 100)
+  assert.equal(loadKitchenMemory().length, 100)
+  assert.equal(saved.at(-1).name, 'Ingredient 100')
+  delete globalThis.localStorage
+})

@@ -49,7 +49,7 @@ The Mise prototype already includes:
 
 - Up to 50 food-photo uploads with previews
 - Ingredient detection with confidence and estimated quantities
-- Manual ingredient edit, add, and removal
+- Manual ingredient edit, add, and removal with up to 100 Kitchen Memory items
 - Allergies, dietary preferences, maximum time, and servings
 - Citation-verified sourced recipe suggestions and recipe details
 - Show-all recipe discovery by default, using compatible subsets from large Kitchen Memory lists; the post-results pantry toggle locally filters 100% matches without another AI request and offers a clearly labelled optional exact-match search only when none are present

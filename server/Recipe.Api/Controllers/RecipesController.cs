@@ -26,7 +26,7 @@ public sealed class RecipesController(
             });
         }
 
-        if (request.Ingredients.Count > 50 ||
+        if (request.Ingredients.Count > GenerateRecipesRequest.MaxIngredientCount ||
             request.Ingredients.Any(item => item.Name.Length > 100 || item.Quantity.Length > 80) ||
             request.Allergens.Count > 20 ||
             request.AvoidIngredients.Count > 20 ||
@@ -36,7 +36,7 @@ public sealed class RecipesController(
             return BadRequest(new ProblemDetails
             {
                 Title = "The recipe request is too large.",
-                Detail = "Use up to 50 ingredients and 20 dietary restrictions."
+                Detail = $"Use up to {GenerateRecipesRequest.MaxIngredientCount} ingredients and 20 dietary restrictions."
             });
         }
 

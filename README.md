@@ -8,7 +8,7 @@ This repository is the independently built, mobile-first implementation referenc
 - Azure OpenAI multimodal ingredient recognition, quantity estimates, confidence, irrelevant-photo filtering, and frozen-meal classification
 - A private per-browser seven-day Azure scan-result cache keyed by photo content, without retaining uploaded photo bytes
 - Credential-free deterministic demo recognition for local development and presentations
-- Required ingredient review with edit, add, remove, quantity correction, and browser-persisted Kitchen Memory
+- Required ingredient review with edit, add, remove, quantity correction, and up to 100 browser-persisted Kitchen Memory items
 - Fourteen UK allergens, custom avoided ingredients, diet, serving settings, and cooking limits through 4 hours or Unlimited
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
 - Azure Responses API web search for real, cited online recipes, with Edamam available as an optional catalogue provider

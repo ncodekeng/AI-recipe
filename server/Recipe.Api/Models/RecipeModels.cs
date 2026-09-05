@@ -4,7 +4,10 @@ namespace Recipe.Api.Models;
 
 public sealed class GenerateRecipesRequest
 {
+    public const int MaxIngredientCount = 100;
+
     [MinLength(1)]
+    [MaxLength(MaxIngredientCount)]
     public List<IngredientInput> Ingredients { get; init; } = [];
     public List<string> Allergens { get; init; } = [];
     public List<string> AvoidIngredients { get; init; } = [];

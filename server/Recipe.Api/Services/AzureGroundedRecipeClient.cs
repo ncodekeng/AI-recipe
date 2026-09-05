@@ -398,7 +398,7 @@ public sealed class AzureGroundedRecipeClient(
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Take(4)
             })
-            .Take(50)
+            .Take(GenerateRecipesRequest.MaxIngredientCount)
             .ToList();
         var ingredientSubsetStrategy = request.OnlyUseAvailableIngredients
             ? searchAttempt == 0

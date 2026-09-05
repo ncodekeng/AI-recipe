@@ -40,4 +40,23 @@ public sealed class RecipeRequestValidationTests
             [],
             validateAllProperties: true));
     }
+
+    [Theory]
+    [InlineData(100, true)]
+    [InlineData(101, false)]
+    public void Supports_up_to_100_kitchen_ingredients(int count, bool expectedValid)
+    {
+        var request = new GenerateRecipesRequest
+        {
+            Ingredients = Enumerable.Range(1, count)
+                .Select(index => new IngredientInput($"ingredient {index}", "1"))
+                .ToList()
+        };
+
+        Assert.Equal(expectedValid, Validator.TryValidateObject(
+            request,
+            new ValidationContext(request),
+            [],
+            validateAllProperties: true));
+    }
 }
