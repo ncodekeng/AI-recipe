@@ -16,7 +16,11 @@ export default function PromptAdminScreen({ onClose, onAuthenticated }) {
 
   useEffect(() => {
     document.body.classList.add('modal-open')
-    return () => document.body.classList.remove('modal-open')
+    document.body.classList.add('admin-open')
+    return () => {
+      document.body.classList.remove('modal-open')
+      document.body.classList.remove('admin-open')
+    }
   }, [])
 
   const dirty = useMemo(() => Boolean(settings) && (
@@ -98,8 +102,20 @@ export default function PromptAdminScreen({ onClose, onAuthenticated }) {
 
   return (
     <div className="admin-screen" role="region" aria-labelledby="prompt-admin-title">
+      <header className="admin-topbar">
+        <div className="admin-product">
+          <span className="admin-product-mark" aria-hidden="true">P</span>
+          <strong>PLATE</strong>
+          <i />
+          <span>Administration</span>
+        </div>
+        <div className="admin-topbar-actions">
+          <span>Protected configuration</span>
+          <button type="button" onClick={requestClose}>Return to app</button>
+        </div>
+      </header>
+
       <div className="admin-shell">
-        <button className="admin-close" type="button" onClick={requestClose} aria-label="Close prompt administration">×</button>
         <div className="admin-heading">
           <div>
             <p className="eyebrow">PLATE configuration</p>

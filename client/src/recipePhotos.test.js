@@ -10,6 +10,11 @@ const recipe = {
   imageLicenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
   imageAttributionRequirements: 'Credit Example Photographer; link to the source and license.',
   imageRightsStatus: 'VerifiedCommercial',
+  imageProvider: 'Wikimedia Commons',
+  imageCreator: 'Example Photographer',
+  imageCommercialUseAllowed: true,
+  imageAttributionRequired: true,
+  imageVerified: true,
 }
 
 test('photo switch on selects an image with complete commercial license metadata', () => {
@@ -39,6 +44,8 @@ test('explicit test-only status permits an unverified local test image', () => {
     imageLicenseUrl: null,
     imageAttributionRequirements: 'Testing only — image rights were not verified.',
     imageRightsStatus: 'UnverifiedTestOnly',
+    imageCommercialUseAllowed: false,
+    imageVerified: false,
   }
 
   assert.equal(hasValidRecipePhoto(testImage), true)

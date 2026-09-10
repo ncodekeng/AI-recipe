@@ -9,9 +9,15 @@ export function hasValidRecipePhoto(recipe) {
       sourceUrl.protocol === 'https:' &&
       sourceUrl.hostname === 'commons.wikimedia.org'
     if (recipe.imageRightsStatus === 'UnverifiedTestOnly') {
-      return validImageAndSource && recipe.imageLicenseType === 'Unverified test image'
+      return validImageAndSource &&
+        recipe.imageLicenseType === 'Unverified test image' &&
+        recipe.imageVerified !== true &&
+        recipe.imageCommercialUseAllowed !== true
     }
-    if (recipe.imageRightsStatus !== 'VerifiedCommercial') return false
+    if (recipe.imageRightsStatus !== 'VerifiedCommercial' ||
+      recipe.imageVerified !== true ||
+      recipe.imageCommercialUseAllowed !== true ||
+      recipe.imageProvider !== 'Wikimedia Commons') return false
 
     const license = recipe.imageLicenseType.toUpperCase().replaceAll('-', ' ')
     const isCommercialLicense = license.startsWith('CC0') ||
@@ -29,9 +35,12 @@ export function hasValidRecipePhoto(recipe) {
       }
     })()
 
+    const completeAttribution = !recipe.imageAttributionRequired || Boolean(recipe.imageCreator)
+
     return validImageAndSource &&
       isCommercialLicense &&
-      validLicenseUrl
+      validLicenseUrl &&
+      completeAttribution
   } catch {
     return false
   }

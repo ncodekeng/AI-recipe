@@ -21,6 +21,7 @@ public sealed class EdamamRecipeClientTests
                   "url": "https://publisher.example.test/roast-salmon",
                   "source": "Example Kitchen",
                   "yield": 2,
+                  "calories": 708,
                   "totalTime": 30,
                   "ingredients": [
                     { "text": "2 salmon fillets", "food": "salmon fillet", "quantity": 2, "measure": "fillet" },
@@ -49,12 +50,13 @@ public sealed class EdamamRecipeClientTests
         {
             Edamam = new EdamamOptions { AppId = "test-id", AppKey = "test-key" }
         });
-        var client = new EdamamRecipeClient(httpClient, options);
+        var client = new EdamamRecipeClient(httpClient, options, new IngredientNormalizer());
 
         var response = await client.FindRecipesAsync(
             new GenerateRecipesRequest
             {
                 Ingredients = [new IngredientInput("salmon", "2")],
+                MainIngredient = "salmon",
                 Servings = 2
             },
             CancellationToken.None);
@@ -62,21 +64,66 @@ public sealed class EdamamRecipeClientTests
         var recipe = Assert.Single(response.Recipes);
         Assert.Null(recipe.ImageUrl);
         Assert.Equal("Example Kitchen", recipe.SourceName);
+        Assert.Equal("Roast Salmon with Lemon", recipe.SourceTitle);
         Assert.Equal("https://publisher.example.test/roast-salmon", recipe.SourceUrl);
+        Assert.True(recipe.SourceVerified);
         Assert.Equal("salmon fillet", recipe.Ingredients[0].Name);
         Assert.Equal(2, recipe.Ingredients[0].Quantity);
         Assert.Equal(RecipeDirectionsKinds.Provider, recipe.DirectionsKind);
         Assert.Equal(2, recipe.Steps.Count);
+        Assert.Equal(354, recipe.CaloriesPerServing);
+    }
+
+    [Fact]
+    public async Task Query_prioritizes_substantial_foods_over_scanned_condiments()
+    {
+        var handler = new JsonHandler("""{ "hits": [] }""");
+        var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://api.edamam.com/")
+        };
+        var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions
+        {
+            Edamam = new EdamamOptions { AppId = "test-id", AppKey = "test-key" }
+        });
+        var client = new EdamamRecipeClient(httpClient, options, new IngredientNormalizer());
+
+        await Assert.ThrowsAsync<RecipeSafetyException>(() => client.FindRecipesAsync(
+            new GenerateRecipesRequest
+            {
+                Ingredients =
+                [
+                    new IngredientInput("mustard jar", "1 jar"),
+                    new IngredientInput("bottle of juice", "2 bottles"),
+                    new IngredientInput("raw chicken breast", "1 piece"),
+                    new IngredientInput("potatoes", "3"),
+                    new IngredientInput("red bell pepper", "1"),
+                    new IngredientInput("onion", "1"),
+                    new IngredientInput("tomatoes", "2"),
+                    new IngredientInput("spinach", "1 bunch")
+                ]
+            },
+            CancellationToken.None));
+
+        var query = Uri.UnescapeDataString(handler.RequestUri!.Query);
+        Assert.Contains("chicken, potato, bell pepper, onion, tomato, spinach", query);
+        Assert.DoesNotContain("mustard", query);
+        Assert.DoesNotContain("juice", query);
     }
 
     private sealed class JsonHandler(string payload) : HttpMessageHandler
     {
+        public Uri? RequestUri { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            CancellationToken cancellationToken)
+        {
+            RequestUri = request.RequestUri;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(payload, Encoding.UTF8, "application/json")
             });
+        }
     }
 }

@@ -12,13 +12,15 @@ builder.Services.Configure<UsageControlOptions>(builder.Configuration.GetSection
 builder.Services.Configure<PromptAdminOptions>(builder.Configuration.GetSection(PromptAdminOptions.SectionName));
 var recipeCacheMaxEntries = builder.Configuration.GetValue<int?>("RecipeCatalog:Cache:MaxEntries") ?? 500;
 var scanCacheMaxEntries = builder.Configuration.GetValue<int?>("FoodAi:ScanCache:MaxEntries") ?? 500;
+var photoCacheMaxEntries = builder.Configuration.GetValue<int?>("RecipeCatalog:CommercialImages:CacheMaxEntries") ?? 500;
 builder.Services.AddMemoryCache(options =>
-    options.SizeLimit = Math.Clamp(recipeCacheMaxEntries + scanCacheMaxEntries, 20, 10000));
+    options.SizeLimit = Math.Clamp(recipeCacheMaxEntries + scanCacheMaxEntries + photoCacheMaxEntries, 20, 10000));
 builder.Services.AddSingleton<DemoFoodAiService>();
 builder.Services.AddSingleton<RecipeSafetyValidator>();
 builder.Services.AddSingleton<IngredientNormalizer>();
 builder.Services.AddSingleton<RecipeRankingService>();
 builder.Services.AddSingleton<RecipeSearchCache>();
+builder.Services.AddSingleton<RecipePhotoCache>();
 builder.Services.AddSingleton<IngredientScanCache>();
 builder.Services.AddSingleton<IGroceryBasketService, DeliverooBasketService>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -46,6 +48,9 @@ builder.Services.AddHttpClient<CommercialRecipeImageClient>(client =>
     client.BaseAddress = new Uri("https://commons.wikimedia.org/");
     client.Timeout = TimeSpan.FromSeconds(12);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("PLATE/1.0 (commercial-license image verification)");
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false
 });
 builder.Services.AddScoped<IRecipeAiService, RecipeAiService>();
 builder.Services.AddScoped<IRecipeCatalogService, RecipeCatalogService>();

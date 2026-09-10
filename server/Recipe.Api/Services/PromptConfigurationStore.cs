@@ -17,6 +17,9 @@ public static class AiPromptDefaults
         """;
 
     public const string RecipeRecommendation = """
+        First identify familiar, typical dish ideas from small compatible subsets of the user's ingredients.
+        Prioritize substantial foods such as meat, fish, vegetables, grains, or complete meals over condiments, drinks, and garnishes.
+        Treat each dish idea only as a web-search query and return it only when an exact public publisher recipe confirms it.
         Recommend common, practical recipes that use the largest number of the user's available ingredients.
         Put the best established traditional recipe requiring 1 to 3 missing non-staple ingredients first.
         Put the best recipe requiring no missing non-staple ingredients second when one exists.

@@ -44,9 +44,13 @@ public sealed class RecipeCatalogService(
 
         if (cache.TryGet(request, out var cachedResponse) && cachedResponse is not null)
         {
-            return cachedResponse with
+            var cachedWithPhotos = await ApplyCommercialImagesAsync(
+                cachedResponse,
+                request.ShowPhotos,
+                cancellationToken);
+            return cachedWithPhotos with
             {
-                Notice = AppendNotice(cachedResponse.Notice, "Loaded from the short-term recipe cache.")
+                Notice = AppendNotice(cachedWithPhotos.Notice, "Loaded from the short-term recipe cache.")
             };
         }
 
@@ -57,11 +61,11 @@ public sealed class RecipeCatalogService(
                 : await edamam.FindRecipesAsync(request, cancellationToken);
             var safeResponse = safetyValidator.Validate(response, request);
             var rankedResponse = RankAndLimit(safeResponse, request);
+            cache.Store(request, rankedResponse);
             var result = await ApplyCommercialImagesAsync(
                 rankedResponse,
                 request.ShowPhotos,
                 cancellationToken);
-            cache.Store(request, result);
             return result;
         }
         catch (RecipeSafetyException)
@@ -86,8 +90,9 @@ public sealed class RecipeCatalogService(
                 response.Recipes,
                 request.Ingredients,
                 request.RecentlyShownRecipeIds,
-                request.OnlyUseAvailableIngredients)
-            .Take(6)
+                request.OnlyUseAvailableIngredients,
+                request.MainIngredient)
+            .Take(Math.Clamp(request.MaxRecipes, 3, 5))
             .ToList();
         if (request.OnlyUseAvailableIngredients && recipes.Count == 0)
         {
@@ -125,6 +130,11 @@ public sealed class RecipeCatalogService(
                     ImageLicenseType = image.LicenseType,
                     ImageLicenseUrl = image.LicenseUrl,
                     ImageAttributionRequirements = image.AttributionRequirements,
+                    ImageProvider = image.Provider,
+                    ImageCreator = image.Creator,
+                    ImageCommercialUseAllowed = image.CommercialUseAllowed,
+                    ImageAttributionRequired = image.AttributionRequired,
+                    ImageVerified = image.IsVerified,
                     ImageRightsStatus = image.IsVerified
                         ? RecipeImageRightsStatuses.VerifiedCommercial
                         : RecipeImageRightsStatuses.UnverifiedTestOnly
@@ -141,6 +151,11 @@ public sealed class RecipeCatalogService(
         ImageLicenseType = null,
         ImageLicenseUrl = null,
         ImageAttributionRequirements = null,
+        ImageProvider = null,
+        ImageCreator = null,
+        ImageCommercialUseAllowed = false,
+        ImageAttributionRequired = false,
+        ImageVerified = false,
         ImageRightsStatus = RecipeImageRightsStatuses.Unavailable
     };
 

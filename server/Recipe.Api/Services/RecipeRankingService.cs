@@ -6,7 +6,8 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
 {
     public RecipeMatch CalculateMatch(
         IEnumerable<IngredientInput> pantry,
-        IEnumerable<RecipeIngredient> requiredIngredients)
+        IEnumerable<RecipeIngredient> requiredIngredients,
+        string? mainIngredient = null)
     {
         var pantryNames = pantry
             .Where(item => !string.IsNullOrWhiteSpace(item.Name))
@@ -36,36 +37,65 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
         }
 
         var requiredCount = meaningfulRequired.Count;
-        var matchPercentage = requiredCount == 0
-            ? 100
-            : (int)Math.Round(100d * available.Count / requiredCount, MidpointRounding.AwayFromZero);
-        return new RecipeMatch(available, missing, requiredCount, available.Count, matchPercentage);
+        var relevantPantryCount = pantryNames
+            .Select(normalizer.Normalize)
+            .Where(item => !string.IsNullOrWhiteSpace(item) && !normalizer.IsPantryStaple(item))
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+        var relevantIngredientCount = Math.Min(relevantPantryCount, requiredCount);
+        var coverage = relevantIngredientCount == 0
+            ? 1d
+            : Math.Min(1d, (double)available.Count / relevantIngredientCount);
+        var availability = requiredCount == 0
+            ? 1d
+            : (double)available.Count / requiredCount;
+        var mainIngredientPresent = string.IsNullOrWhiteSpace(mainIngredient) ||
+            meaningfulRequired.Any(item => normalizer.Matches(mainIngredient, item.Name));
+        var matchPercentage = mainIngredientPresent
+            ? (int)Math.Round(
+                (coverage * 0.40d + availability * 0.60d) * 100d,
+                MidpointRounding.AwayFromZero)
+            : 0;
+        return new RecipeMatch(
+            available,
+            missing,
+            requiredCount,
+            available.Count,
+            matchPercentage,
+            coverage,
+            availability,
+            mainIngredientPresent,
+            BuildMatchReason(matchPercentage, available, missing, mainIngredientPresent));
     }
 
     public IReadOnlyList<RecipeSuggestion> Rank(
         IEnumerable<RecipeSuggestion> recipes,
         IEnumerable<IngredientInput> pantry,
         IEnumerable<Guid>? recentlyShownRecipeIds = null,
-        bool onlyUseAvailableIngredients = false)
+        bool onlyUseAvailableIngredients = false,
+        string? mainIngredient = null)
     {
         var recentIds = recentlyShownRecipeIds?.ToHashSet() ?? [];
         var candidates = recipes
             .Select((recipe, providerIndex) =>
             {
-                var match = CalculateMatch(pantry, recipe.Ingredients);
+                var match = CalculateMatch(pantry, recipe.Ingredients, mainIngredient);
                 var enriched = recipe with
                 {
                     IngredientMatch = match.MatchPercentage,
                     AvailableIngredients = match.AvailableIngredients,
                     MissingIngredients = match.MissingIngredients,
                     RequiredIngredientCount = match.RequiredIngredientCount,
-                    AvailableIngredientCount = match.AvailableIngredientCount
+                    AvailableIngredientCount = match.AvailableIngredientCount,
+                    MatchReason = match.MatchReason
                 };
                 return new RankedRecipe(
                     enriched,
                     Score(enriched, providerIndex) - (recentIds.Contains(enriched.Id) ? 35 : 0),
-                    recentIds.Contains(enriched.Id));
+                    recentIds.Contains(enriched.Id),
+                    match.MainIngredientPresent);
             })
+            .Where(item => item.MainIngredientPresent)
             .ToList();
 
         if (onlyUseAvailableIngredients)
@@ -154,5 +184,40 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
                usefulComplexity - excessComplexityPenalty;
     }
 
-    private sealed record RankedRecipe(RecipeSuggestion Recipe, double Score, bool WasRecentlyShown);
+    private static string BuildMatchReason(
+        int matchPercentage,
+        IReadOnlyList<RecipeIngredient> available,
+        IReadOnlyList<RecipeIngredient> missing,
+        bool mainIngredientPresent)
+    {
+        if (!mainIngredientPresent)
+        {
+            return "0% match - the selected main ingredient is not part of this recipe.";
+        }
+
+        var used = string.Join(", ", available
+            .Select(item => item.Name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(6));
+        var missingNames = string.Join(", ", missing
+            .Select(item => item.Name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3));
+        var usedText = string.IsNullOrWhiteSpace(used)
+            ? "uses no confirmed non-pantry ingredients yet"
+            : $"uses {used}";
+        var missingText = missing.Count switch
+        {
+            0 => "no non-pantry ingredients are missing",
+            1 => $"only {missingNames} is missing",
+            _ => $"{missingNames} are missing"
+        };
+        return $"{matchPercentage}% match - {usedText}; {missingText}.";
+    }
+
+    private sealed record RankedRecipe(
+        RecipeSuggestion Recipe,
+        double Score,
+        bool WasRecentlyShown,
+        bool MainIngredientPresent);
 }

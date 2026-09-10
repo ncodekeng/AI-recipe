@@ -15,8 +15,8 @@ public sealed class AzureWebSearchOptions
 {
     public int MaxToolCalls { get; init; } = 4;
     public int MaxOutputTokens { get; init; } = 4000;
-    public int CandidateCount { get; init; } = 6;
-    public int MinimumResultCount { get; init; } = 6;
+    public int CandidateCount { get; init; } = 5;
+    public int MinimumResultCount { get; init; } = 5;
     public int BatchSize { get; init; } = 3;
     public int MaxSearchAttempts { get; init; } = 2;
     public string Market { get; init; } = "en-GB";
@@ -37,6 +37,12 @@ public sealed class CommercialImageOptions
     public bool Enabled { get; init; } = true;
     public bool AllowUnverifiedForTesting { get; init; }
     public int MaxCandidates { get; init; } = 8;
+    public int MaxResponseBytes { get; init; } = 2 * 1024 * 1024;
+    public bool CacheEnabled { get; init; } = true;
+    public int CacheDurationHours { get; init; } = 168;
+    public int CacheMaxEntries { get; init; } = 500;
+    public string[] AllowedProviders { get; init; } =
+        ["WikimediaCommons", "Pexels", "Pixabay"];
 }
 
 public sealed class RecipeCacheOptions

@@ -47,9 +47,9 @@ Always inspect and preserve any new working-tree changes before continuing.
 
 The Mise prototype already includes:
 
-- Up to 50 food-photo uploads with previews
+- Up to 50 food-photo uploads with previews and private in-browser HEIC/HEIF-to-JPEG conversion
 - Ingredient detection with confidence and estimated quantities
-- Manual ingredient edit, add, removal, and semantic duplicate cleanup with up to 100 Kitchen Memory items
+- Manual ingredient edit, add, removal, one-click clear-all, and semantic duplicate cleanup with up to 100 Kitchen Memory items
 - Allergies, dietary preferences, maximum time, and servings
 - Citation-verified sourced recipe suggestions and recipe details
 - Show-all recipe discovery by default, using compatible subsets from large Kitchen Memory lists; the post-results pantry toggle locally filters 100% matches without another AI request and offers a clearly labelled optional exact-match search only when none are present
@@ -188,13 +188,13 @@ The user must never go directly from uncertain image recognition to recipes with
 - Done locally: mobile-friendly web UI; multiple photos; previews/removal/type and size validation.
 - Done locally: credential-free demo and high-detail per-photo Azure multimodal recognition with bounded parallel calls, deterministic cross-photo merging, partial-photo failure reporting, confidence, quantity, manual edit/add/remove, empty-result guidance, ignored-photo reporting, and experimental frozen-meal classification.
 - Done locally: structured allergens, custom avoid list, diet, servings, and maximum time.
-- Done locally: Azure web-grounded recipe search with citation enforcement, optional Edamam provider boundary, no invented fallback, deterministic safety validation, missing ingredient UI, source links, and conditional Edamam attribution.
+- Done locally: Azure web-grounded recipe search with citation enforcement, optional Edamam provider boundary, no invented fallback, deterministic safety validation, mandatory user-selected Main ingredient, 40/60 coverage-and-availability match scoring, missing ingredient UI, source links, and conditional Edamam attribution.
 - Done locally: persistent browser Kitchen Memory, sourced bookmarks, recent search/result history, basic repeat-result diversification, feedback API/UI, timeouts and failure states.
 - Done locally: private seven-day Azure scan-result caching; identical photos from the same browser skip Azure and do not consume another scan allowance while the single server process remains alive.
 - Done locally for a single instance: daily limits, one active request, estimated budget cutoff, kill switch, and usage display.
 - Done locally: clear prototype data-handling copy and browser-data deletion.
 - Still required for public MVP: Base44/auth decision, cross-device account persistence, shared durable quota/idempotency store, bot/gateway controls, actual cost telemetry, durable feedback/log sink, staging provider verification, and reviewed privacy/legal copy.
-- Still provider-dependent: canonical in-app instructions require licensed content. Production photography is shown only when Wikimedia Commons metadata passes the commercial-license allowlist; otherwise PLATE uses built-in artwork. The local Development profile can show an orange-labelled `UnverifiedTestOnly` image for visual testing, but the backend refuses that fallback outside Development. Azure can show a clearly labelled AI cooking guide, while the publisher link remains canonical.
+- Still provider-dependent: canonical in-app instructions require licensed content. Production photography is shown only when Wikimedia Commons metadata passes the commercial-license allowlist; verified image/license metadata is cached independently for up to seven days, otherwise PLATE uses built-in artwork. The local Development profile can show an orange-labelled `UnverifiedTestOnly` image for visual testing, but the backend refuses that fallback outside Development. Azure can show a clearly labelled AI cooking guide, while the publisher link remains canonical.
 
 ### P1 candidates
 

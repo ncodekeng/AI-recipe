@@ -14,6 +14,9 @@ public sealed class GenerateRecipesRequest
     public List<Guid> RecentlyShownRecipeIds { get; init; } = [];
     public string DietaryPreference { get; init; } = "Anything";
 
+    [MaxLength(100)]
+    public string MainIngredient { get; init; } = string.Empty;
+
     // Zero means that the user selected "Unlimited".
     [Range(0, 240)]
     public int MaxCookingMinutes { get; init; } = 45;
@@ -22,6 +25,9 @@ public sealed class GenerateRecipesRequest
     public int Servings { get; init; } = 2;
 
     public bool ShowPhotos { get; init; } = true;
+
+    [Range(3, 5)]
+    public int MaxRecipes { get; init; } = 5;
 
     public bool OnlyUseAvailableIngredients { get; init; }
 }
@@ -59,7 +65,18 @@ public sealed record RecipeSuggestion(
     string? ImageLicenseType = null,
     string? ImageLicenseUrl = null,
     string? ImageAttributionRequirements = null,
-    string ImageRightsStatus = RecipeImageRightsStatuses.Unavailable);
+    string ImageRightsStatus = RecipeImageRightsStatuses.Unavailable,
+    int? CaloriesPerServing = null,
+    string? MatchReason = null,
+    bool SourceVerified = false,
+    string? ImageProvider = null,
+    string? ImageCreator = null,
+    bool ImageCommercialUseAllowed = false,
+    bool ImageAttributionRequired = false,
+    bool ImageVerified = false,
+    string? SourceTitle = null,
+    int? PrepMinutes = null,
+    int? CookMinutes = null);
 
 public static class RecipeDirectionsKinds
 {
@@ -97,4 +114,9 @@ public sealed record RecipePhotoLookupResult(
     string? ImageLicenseType,
     string? ImageLicenseUrl,
     string? ImageAttributionRequirements,
-    string ImageRightsStatus);
+    string ImageRightsStatus,
+    string? ImageProvider = null,
+    string? ImageCreator = null,
+    bool ImageCommercialUseAllowed = false,
+    bool ImageAttributionRequired = false,
+    bool ImageVerified = false);

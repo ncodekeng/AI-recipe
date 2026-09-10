@@ -9,6 +9,7 @@ namespace Recipe.Api.Controllers;
 public sealed class RecipesController(
     IRecipeCatalogService recipeCatalog,
     CommercialRecipeImageClient commercialImages,
+    IngredientNormalizer ingredientNormalizer,
     AdminSessionService adminSessions,
     AiUsageGuard usageGuard) : ControllerBase
 {
@@ -37,6 +38,16 @@ public sealed class RecipesController(
             {
                 Title = "The recipe request is too large.",
                 Detail = $"Use up to {GenerateRecipesRequest.MaxIngredientCount} ingredients and 20 dietary restrictions."
+            });
+        }
+        if (!string.IsNullOrWhiteSpace(request.MainIngredient) &&
+            !request.Ingredients.Any(item =>
+                ingredientNormalizer.Matches(item.Name, request.MainIngredient)))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Choose a main ingredient from Kitchen Memory.",
+                Detail = "The selected main ingredient must match one of the submitted ingredients."
             });
         }
 
@@ -108,7 +119,8 @@ public sealed class RecipesController(
                     null,
                     null,
                     null,
-                    RecipeImageRightsStatuses.Unavailable)
+                    RecipeImageRightsStatuses.Unavailable,
+                    ImageVerified: false)
                 : new RecipePhotoLookupResult(
                     recipe.Id,
                     image.ImageUrl,
@@ -118,7 +130,12 @@ public sealed class RecipesController(
                     image.AttributionRequirements,
                     image.IsVerified
                         ? RecipeImageRightsStatuses.VerifiedCommercial
-                        : RecipeImageRightsStatuses.UnverifiedTestOnly);
+                        : RecipeImageRightsStatuses.UnverifiedTestOnly,
+                    image.Provider,
+                    image.Creator,
+                    image.CommercialUseAllowed,
+                    image.AttributionRequired,
+                    image.IsVerified);
         }));
 
         return Ok(results);

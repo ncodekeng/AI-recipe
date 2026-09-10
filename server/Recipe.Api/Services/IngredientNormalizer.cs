@@ -53,6 +53,24 @@ public sealed partial class IngredientNormalizer
     private static readonly HashSet<string> PantryStaples =
         ["salt", "black pepper", "water", "cooking oil", "olive oil"];
 
+    private static readonly string[] ProteinSearchTerms =
+    [
+        "chicken", "beef", "lamb", "pork", "salmon", "fish", "shrimp", "egg", "turkey",
+        "duck", "tofu", "tempeh", "bean", "lentil", "meat", "sausage"
+    ];
+
+    private static readonly string[] BaseSearchTerms =
+        ["potato", "rice", "pasta", "bread", "noodle", "couscous", "quinoa", "tortilla"];
+
+    private static readonly string[] DairySearchTerms =
+        ["cheese", "milk", "yogurt", "butter", "cream"];
+
+    private static readonly string[] LowPrioritySearchTerms =
+    [
+        "juice", "dressing", "mayonnaise", "mustard", "soy sauce", "hot sauce", "stock",
+        "broth", "pickled vegetable", "spice mix", "seasoning", "turmeric powder"
+    ];
+
     private static readonly HashSet<string> KnownConcepts =
         Concepts.Select(concept => concept.Canonical).ToHashSet(StringComparer.Ordinal);
 
@@ -114,8 +132,85 @@ public sealed partial class IngredientNormalizer
 
     public bool IsPantryStaple(string ingredient) => PantryStaples.Contains(Normalize(ingredient));
 
+    public IReadOnlyList<string> SelectRecipeSearchFocus(
+        IEnumerable<IngredientInput> ingredients,
+        int maxCount,
+        int variation = 0,
+        string? mainIngredient = null)
+    {
+        var canonical = ingredients
+            .Where(item => !string.IsNullOrWhiteSpace(item.Name))
+            .Select((item, index) => new SearchIngredient(Normalize(item.Name), index))
+            .Where(item => item.Name.Length > 0)
+            .GroupBy(item => item.Name, StringComparer.Ordinal)
+            .Select(group => group.OrderBy(item => item.Index).First())
+            .ToList();
+        if (canonical.Count == 0)
+        {
+            return [];
+        }
+
+        var useful = canonical
+            .Where(item => !IsPantryStaple(item.Name))
+            .ToList();
+        if (useful.Count == 0)
+        {
+            useful = canonical;
+        }
+
+        var limit = Math.Clamp(maxCount, 1, 12);
+        var normalizedMain = Normalize(mainIngredient ?? string.Empty);
+        var selectedMain = useful.FirstOrDefault(item =>
+            item.Name.Equals(normalizedMain, StringComparison.Ordinal));
+        var proteins = useful
+            .Where(item => HasAnyPhrase(item.Name, ProteinSearchTerms))
+            .OrderBy(item => item.Index)
+            .ToList();
+        var supporting = useful
+            .Where(item => !HasAnyPhrase(item.Name, ProteinSearchTerms))
+            .OrderByDescending(item => RecipeSearchPriority(item.Name))
+            .ThenBy(item => item.Index)
+            .ToList();
+
+        var result = new List<SearchIngredient>(limit);
+        if (selectedMain is not null)
+        {
+            result.Add(selectedMain);
+        }
+
+        SearchIngredient? primaryProtein = null;
+        if (selectedMain is null && proteins.Count > 0)
+        {
+            primaryProtein = proteins[Math.Max(0, variation) % proteins.Count];
+            result.Add(primaryProtein);
+        }
+
+        result.AddRange(supporting
+            .Where(item => item != selectedMain)
+            .Take(limit - result.Count));
+        if (result.Count < limit)
+        {
+            result.AddRange(proteins
+                .Where(item => item != primaryProtein && item != selectedMain)
+                .Take(limit - result.Count));
+        }
+
+        return result.Select(item => item.Name).ToList();
+    }
+
     private static bool ContainsPhrase(string text, string phrase) =>
         $" {text} ".Contains($" {phrase} ", StringComparison.Ordinal);
+
+    private static bool HasAnyPhrase(string value, IEnumerable<string> phrases) =>
+        phrases.Any(phrase => ContainsPhrase(value, phrase));
+
+    private static int RecipeSearchPriority(string ingredient)
+    {
+        if (HasAnyPhrase(ingredient, BaseSearchTerms)) return 300;
+        if (HasAnyPhrase(ingredient, LowPrioritySearchTerms)) return 20;
+        if (HasAnyPhrase(ingredient, DairySearchTerms)) return 120;
+        return 200;
+    }
 
     private static string Singularize(string token)
     {
@@ -139,6 +234,8 @@ public sealed partial class IngredientNormalizer
 
     [GeneratedRegex("\\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespaceRegex();
+
+    private sealed record SearchIngredient(string Name, int Index);
 }
 
 public sealed record RecipeMatch(
@@ -146,4 +243,8 @@ public sealed record RecipeMatch(
     IReadOnlyList<RecipeIngredient> MissingIngredients,
     int RequiredIngredientCount,
     int AvailableIngredientCount,
-    int MatchPercentage);
+    int MatchPercentage,
+    double Coverage,
+    double Availability,
+    bool MainIngredientPresent,
+    string MatchReason);

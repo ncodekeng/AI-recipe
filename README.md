@@ -4,17 +4,18 @@ This repository is the independently built, mobile-first implementation referenc
 
 ## What works now
 
-- One to 50 camera/gallery photos with previews, removal, signature validation, and no application-level photo storage
+- One to 50 camera/gallery photos with previews, removal, signature validation, client-side HEIC/HEIF-to-JPEG conversion, and no application-level photo storage
 - Azure OpenAI multimodal ingredient recognition, quantity estimates, confidence, irrelevant-photo filtering, and frozen-meal classification
 - A private per-browser seven-day Azure scan-result cache keyed by photo content, without retaining uploaded photo bytes
 - Credential-free deterministic demo recognition for local development and presentations
-- Required ingredient review with edit, add, remove, quantity correction, semantic duplicate cleanup, and up to 100 browser-persisted Kitchen Memory items
+- Required ingredient review with edit, add, remove, one-click clear-all, quantity correction, semantic duplicate cleanup, and up to 100 browser-persisted Kitchen Memory items
 - Fourteen UK allergens, custom avoided ingredients, diet, serving settings, and cooking limits through 4 hours or Unlimited
 - Deterministic post-response allergen/diet validation; prompts are not the safety boundary
 - Azure Responses API web search for real, cited online recipes, with Edamam available as an optional catalogue provider
-- Backend ingredient normalization, meaningful pantry-staple handling, traditional near-match-first ordering, a best complete-match second slot, and recent-result diversification
+- A persisted Main ingredient selection that is placed first in provider search focus and deterministically required in every returned recipe
+- Backend ingredient normalization, substantial-food search focus for large pantries, meaningful pantry-staple handling, a 40% relevant-coverage / 60% recipe-availability match score, traditional near-match-first ordering, a best complete-match second slot, and recent-result diversification
 - A license-gated seven-day recipe-result cache keyed by normalized ingredients and every safety preference
-- Commercial-use image lookup through Wikimedia Commons structured license metadata, with recipe-specific built-in artwork whenever no image can be verified
+- Commercial-use image lookup through Wikimedia Commons structured license metadata plus a separate seven-day photo/license cache, with recipe-specific built-in artwork whenever no image can be verified
 - A persisted Show recipe photos switch that prevents remote image requests when disabled and can hydrate existing results without another Azure recipe search
 - Visible owned/missing ingredient matching, a primary Top Pick, and source-aware recipe details
 - A post-results **Cook with what I have / Show all recipes** control that defaults to all practical matches and instantly filters the existing cards to zero-missing recipes without another AI request
@@ -137,6 +138,8 @@ dotnet run --project server/Recipe.Api
 
 Ingredient recognition uses `/openai/v1/chat/completions`. Each uploaded photo is inspected in its own high-detail request, with two requests running concurrently by default; successful photo results are merged by normalized ingredient name, and a failure on one photo no longer discards detections from the others. `MaxOutputTokensPerImage` is clamped to 800-6000 and `MaxParallelImages` to 1-6. This is more accurate for crowded shelves but can use more image tokens and provider calls than the previous combined low-detail request, so tune `UsageControl__EstimatedScanCostUsd` and the Azure budget alert using measured staging usage.
 
+The gallery accepts HEIC/HEIF source photos up to 20 MB and lazily loads `heic-to` to decode, resize, and encode them as JPEG in the browser. Only the converted JPEG, which must be no larger than 5 MB, is sent to the API. The server intentionally continues to reject raw HEIC/HEIF because the Azure vision request accepts JPEG, PNG, WebP, and non-animated GIF rather than HEIC.
+
 Recipe discovery uses `/openai/v1/responses` with `web_search` forced on every request. The same Azure endpoint, key, and deployment settings are used for both paths. Confirm that the selected model and Azure region support image input, Responses, and web search. Secrets must remain in environment variables, Azure Key Vault references, or local user-secrets and must never be committed.
 
 `FoodAi__UseDemoFallback` defaults to `true` for presentations. Set it to `false` when Azure failures should be visible instead of switching to demo recognition.
@@ -169,19 +172,19 @@ Use `/home/data/...` for a Linux App Service with persistent storage or `D:\home
 
 ## Find real recipes with Azure
 
-The default recipe path uses Azure's Responses API with the `web_search` tool. Azure searches current publisher pages and returns structured recipe metadata. PLATE accepts a result only when its exact HTTPS `sourceUrl` also appears in the search tool's returned sources or citation annotations. A URL written only by the model is rejected. Azure also writes a separate practical cooking guide, which the API marks `AiGenerated` and the UI labels as AI guidance rather than publisher instructions. The cited publisher page remains the canonical recipe and is linked at the end.
+The default recipe path uses Azure's Responses API with the `web_search` tool. The user selects one Main ingredient from Kitchen Memory; the backend puts it first in the compact search focus and rejects any result whose full ingredient list does not contain it. For a large Kitchen Memory, the rest of the focus prioritizes substantial foods, meal bases, and useful produce while deprioritizing condiments and drinks. The complete normalized pantry is still sent for match and missing-ingredient checks. Within the grounded request, Azure infers familiar dish concepts from small compatible subsets of that focus and uses those concepts only as search hypotheses. Azure then searches current publisher pages and returns structured recipe metadata; an unconfirmed hypothesis is discarded. PLATE accepts a result only when its exact HTTPS `sourceUrl` also appears in the search tool's returned sources or citation annotations. A URL written only by the model is rejected. Azure also writes a separate practical cooking guide, which the API marks `AiGenerated` and the UI labels as AI guidance rather than publisher instructions. The cited publisher page remains the canonical recipe and is linked at the end.
 
 For every non-halal Azure result the model is instructed to provide a short rough wine suggestion, but the recipe title, ingredient list, quantities, and source URL must come from one cited page. PLATE does not display an AI-written recipe summary. Halal-style searches do not request or return wine suggestions. Deterministic dietary and allergen validation still runs after Azure, because prompting is not a safety boundary. When available, valid results put the best sourced traditional dish requiring one to three missing non-staple ingredients first and the best no-missing recipe second. Remaining results are randomized, with recently displayed recipes moved later. Initial recipe searches request this broad mixed set and tell Azure to treat a large Kitchen Memory as a menu of compatible ingredient subsets, not as a demand that one dish use every item. **Show all recipes** is the initial display mode. After results arrive, **Cook with what I have** locally displays only recipes with zero missing non-staple ingredients; switching modes never creates another Azure request, and switching back restores the original cards. Scanned packaging words such as `bottle`, `jar`, `tub`, `box`, and `pack` are normalized before search. Ingredient and preference edits clear stale results but preserve the selected display filter for the next explicit search. If the current result set has no 100% match, the UI offers **Show all recipes** plus an explicit **Find 100% matches** action labelled as one additional recipe search. That exact-match request is stored separately so failure cannot destroy the original mixed results.
 
 Azure currently rejects JSON response modes on some Responses API requests that use `web_search`. PLATE therefore leaves the response format in its default text mode, instructs the model to return one JSON object, and parses that object after the search. Each call requests no more than three recipes so the JSON remains compact. If Azure returns prose or malformed JSON, PLATE retries that batch once with a stronger JSON-only instruction and accepts harmless trailing commas. Recipes are accepted only when their source URLs match that batch's real search sources or citation annotations.
 
-PLATE combines small batches to seek six distinct cited results and displays at most six. `RecipeCatalog__AzureWebSearch__BatchSize` defaults to `3`, `MinimumResultCount` defaults to `6`, and `MaxSearchAttempts` defaults to `2`. Later searches exclude URLs already accepted. If the first batch is unreadable, PLATE can try a fresh batch; if an additional batch fails after valid recipes were found, it keeps and displays those earlier recipes. A restrictive pantry, cooking-time limit, provider response, or safety filter can still leave fewer than six honest results; PLATE reports that instead of inventing extras or discarding valid results.
+PLATE combines batches of no more than three to seek the user-selected total of three to five distinct cited results. `RecipeCatalog__AzureWebSearch__BatchSize` defaults to `3`, `MinimumResultCount` defaults to `5`, and `MaxSearchAttempts` defaults to `2`. Later searches exclude URLs already accepted. If the first batch is unreadable, PLATE can try a fresh batch; if an additional batch fails after valid recipes were found, it keeps and displays those earlier recipes. A restrictive pantry, cooking-time limit, provider response, or safety filter can still leave fewer honest results; PLATE reports that instead of inventing extras or discarding valid results.
 
-Azure web search does not provide a dependable licensed recipe-image field, so PLATE never accepts an image URL or license claim from the model. When **Show recipe photos** is enabled, the backend separately searches Wikimedia Commons for the exact ranked dish and reads the file's structured image metadata. It accepts only HTTPS bitmap images explicitly marked CC0, Public Domain, CC BY, or CC BY-SA. CC BY and CC BY-SA also require a creator and a valid Creative Commons license URL. Every accepted result returns `imageUrl`, `imageSourceUrl`, `imageLicenseType`, `imageLicenseUrl`, and `imageAttributionRequirements`; the UI displays the required credit and links. Any missing, conflicting, non-commercial, or irrelevant metadata produces `imageUrl: null` and the built-in fallback artwork.
+Azure web search does not provide a dependable licensed recipe-image field, so PLATE never accepts an image URL or license claim from the model. When **Show recipe photos** is enabled, the backend separately searches Wikimedia Commons for the exact ranked dish and reads the file's structured image metadata. It accepts only HTTPS bitmap images explicitly marked CC0, Public Domain, CC BY, or CC BY-SA. CC BY and CC BY-SA also require a creator and a valid Creative Commons license URL. Every accepted result returns the image/source URLs, provider, creator, license and attribution fields, commercial-use flag, and verified status together; the UI displays the required credit and links. Any missing, conflicting, non-commercial, or irrelevant metadata produces `imageUrl: null` and the built-in fallback artwork.
 
 This is deliberately conservative, but not a legal guarantee: Wikimedia says each file can have different reuse conditions and recommends independently checking the file description and non-copyright restrictions before commercial reuse.
 
-The Commons lookup needs no API key. It is enabled by default and can be disabled with `RecipeCatalog__CommercialImages__Enabled=false`; `RecipeCatalog__CommercialImages__MaxCandidates` bounds each search. Turning **Show recipe photos** off skips and unmounts remote images. Turning it back on for results already on screen calls the photo-only endpoint, not Azure recipe generation. A relevant photo is still not guaranteed: if no candidate passes the relevance, license, and attribution checks, local artwork remains.
+The Commons lookup needs no API key. It is enabled by default and can be disabled with `RecipeCatalog__CommercialImages__Enabled=false`; `RecipeCatalog__CommercialImages__MaxCandidates` bounds each search and `MaxResponseBytes` bounds metadata responses. `AllowedProviders` is the provider whitelist; the current adapter implements Wikimedia Commons, while Pexels and Pixabay are reserved whitelist entries and require future documented API adapters before they can be queried. Turning **Show recipe photos** off skips lookup and unmounts remote images. Turning it back on for results already on screen calls the photo-only endpoint, not Azure recipe generation. A relevant photo is still not guaranteed: if no candidate passes the relevance, license, and attribution checks, local artwork remains.
 
 For visual testing, the tracked `dotnet run` development profile sets `RecipeCatalog__CommercialImages__AllowUnverifiedForTesting=true`. When no fully verified photo is found, Development may show a relevant Commons web image with an orange **Unverified · testing only** warning. The backend requires both that flag and the Development host environment, so the fallback remains disabled in production even if the normal production example settings are used.
 
@@ -220,7 +223,7 @@ $env:FoodAi__ScanCache__DurationHours = '168'
 $env:FoodAi__ScanCache__MaxEntries = '500'
 ```
 
-The separate recipe cache can save repeated Azure web-search or Edamam calls. It uses a safety-aware key containing the active provider, active prompt revision, normalized ingredient names, allergens, avoided ingredients, recent result IDs, diet, cooking time, and servings. It holds up to 500 search results in server memory for 168 hours, so a process restart or Azure App Service recycle clears it.
+The separate recipe cache can save repeated Azure web-search or Edamam calls. It uses a safety-aware key containing the active provider, active prompt revision, normalized ingredient names, Main ingredient, allergens, avoided ingredients, recent result IDs, diet, cooking time, servings, requested result count, recipe mode, and photo preference. It stores the ranked recipe data before photos are attached. The independent photo cache stores the complete verified image/license object (or a negative lookup) by normalized dish and whitelist configuration for up to seven days. Both caches are server-memory caches, so a process restart or Azure App Service recycle clears them.
 
 Caching is disabled by default because provider/search contracts may restrict storage. Do not enable it merely to save calls; this implementation retains structured recipe ingredients and requires permission covering every cached field and the way PLATE serves it. After receiving and recording permission for the active provider, enable both gates:
 
@@ -229,6 +232,9 @@ $env:RecipeCatalog__Cache__Enabled = 'true'
 $env:RecipeCatalog__Cache__ProviderPermissionConfirmed = 'true'
 $env:RecipeCatalog__Cache__DurationHours = '168'
 $env:RecipeCatalog__Cache__MaxEntries = '500'
+$env:RecipeCatalog__CommercialImages__CacheEnabled = 'true'
+$env:RecipeCatalog__CommercialImages__CacheDurationHours = '168'
+$env:RecipeCatalog__CommercialImages__CacheMaxEntries = '500'
 ```
 
 Setting `Enabled=true` without the permission confirmation does not store anything and writes a warning. A future multi-instance deployment needs an approved shared cache; the current in-memory cache is intentionally suitable only for the single-instance prototype.
@@ -249,7 +255,7 @@ Defaults are configured under `UsageControl` in `appsettings.json` and can be ov
 
 - 10 scans and 300 recipe requests per anonymous browser per UTC day during prototype testing
 - One active AI request per browser
-- 5 MB per image, up to 50 images, and approximately 251 MB per request including multipart overhead
+- 5 MB per uploaded image after any HEIC/HEIF conversion, up to 50 images, and approximately 251 MB per request including multipart overhead
 - USD 50 estimated global daily cutoff
 - `UsageControl__AiEnabled=false` emergency kill switch
 - A valid prompt-admin session has unlimited per-browser test attempts while still respecting the kill switch and global budget
@@ -282,7 +288,7 @@ cd ..
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
 ```
 
-The backend tests cover forced Azure web search, citation enforcement, strict HTTPS sourcing, halal wine suppression, ingredient aliases, missing-ingredient calculation, pantry basics, exact/near-match ranking, commercial-image license and attribution rejection, image metadata serialization, and the Deliveroo handoff. Frontend tests cover recipe-specific artwork, commercial-license metadata, photo ON/OFF/failure decisions, preference persistence, missing-only basket payloads, and the zero-missing case. The credential-free smoke suite checks image upload, refusal to fabricate recipes, usage tracking, quota enforcement, grocery handoff, and feedback rate limiting. Real Azure, Wikimedia Commons, and optional Edamam responses still require staging verification.
+The backend tests cover forced Azure web search, citation enforcement, strict HTTPS sourcing, Main ingredient enforcement, 40/60 match scoring, halal wine suppression, ingredient aliases, missing-ingredient calculation, pantry basics, exact/near-match ranking, commercial-image license and attribution rejection, separate photo-cache metadata, image serialization, and the Deliveroo handoff. Frontend tests cover Main ingredient/result-count request fields, match explanations, recipe-specific artwork, commercial-license metadata, attribution, photo ON/OFF/failure decisions, preference persistence, missing-only basket payloads, and the zero-missing case. The credential-free smoke suite checks image upload, refusal to fabricate recipes, usage tracking, quota enforcement, grocery handoff, and feedback rate limiting. Real Azure, Wikimedia Commons, and optional Edamam responses still require staging verification.
 
 ## API endpoints
 

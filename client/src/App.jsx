@@ -18,14 +18,17 @@ import {
   getMissingIngredients,
 } from './groceryBasket.js'
 import {
+  addRecentlyViewedRecipe,
   addHistoryEntry,
   clearLibrary,
   getRecentlyShownRecipeIds,
   loadHistory,
+  loadRecentlyViewedRecipes,
   loadSavedRecipes,
   removeSavedRecipe,
   toggleSavedRecipe,
 } from './library.js'
+import { TRENDING_MEALS } from './homeMeals.js'
 import {
   getRecipeSearchEmptyState,
   getRecipesForMode,
@@ -34,6 +37,11 @@ import {
   recipeSearchReducer,
   usesOnlyAvailableIngredients,
 } from './recipeSearchState.js'
+import {
+  isHeicPhoto,
+  PHOTO_INPUT_ACCEPT,
+  preparePhotoFile,
+} from './photoFiles.js'
 
 const ALLERGENS = [
   'Peanuts',
@@ -63,9 +71,7 @@ const DIETARY_OPTIONS = [
   'Kosher-style',
 ]
 
-const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 const MAX_PHOTO_COUNT = 50
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 const COOKING_TIME_OPTIONS = [20, 30, 45, 60, 90, 120, 180, 240, 0]
 const DEFAULT_PREFERENCES = {
   allergens: [],
@@ -73,16 +79,37 @@ const DEFAULT_PREFERENCES = {
   avoidText: '',
   maxCookingMinutes: 45,
   servings: 2,
+  mainIngredient: '',
+  maxRecipes: 5,
   showRecipePhotos: true,
 }
 const INITIAL_PREFERENCES = { ...DEFAULT_PREFERENCES, ...loadPreferences() }
 const INITIAL_KITCHEN_MEMORY = loadKitchenMemory()
 const INITIAL_SAVED_RECIPES = loadSavedRecipes()
 const INITIAL_HISTORY = loadHistory()
+const INITIAL_RECENT_RECIPES = loadRecentlyViewedRecipes()
 const DEFAULT_SAFETY_NOTE = 'No known conflicts were found from the listed ingredients. Always verify product labels, substitutions, and cross-contamination warnings.'
+const APP_SCREENS = new Set(['home', 'scan', 'review', 'results'])
+
+function getScreenFromHash() {
+  const requested = window.location.hash.replace(/^#/, '')
+  if (!APP_SCREENS.has(requested)) return 'home'
+  if (requested === 'results') return INITIAL_KITCHEN_MEMORY.length ? 'review' : 'scan'
+  return requested
+}
+
+function getGreeting() {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
 
 function Icon({ name, size = 20, strokeWidth = 1.8 }) {
   const paths = {
+    home: <><path d="M2.5 9.5 10 3l7.5 6.5"/><path d="M4.5 8.5V17h11V8.5"/><path d="M8 17v-5h4v5"/></>,
+    scan: <><path d="M3 7V4a1 1 0 0 1 1-1h3"/><path d="M13 3h3a1 1 0 0 1 1 1v3"/><path d="M17 13v3a1 1 0 0 1-1 1h-3"/><path d="M7 17H4a1 1 0 0 1-1-1v-3"/><path d="M5 10h10"/></>,
+    message: <><path d="M3 4h14v10H8l-4 3v-3H3V4Z"/><path d="M6 8h8M6 11h5"/></>,
     camera: <><path d="M14.5 5 13 3H7L5.5 5H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2.5Z"/><circle cx="10" cy="12" r="3.25"/></>,
     upload: <><path d="M10 14V3"/><path d="m6 7 4-4 4 4"/><path d="M4 11H2.5A1.5 1.5 0 0 0 1 12.5v4A1.5 1.5 0 0 0 2.5 18h15a1.5 1.5 0 0 0 1.5-1.5v-4a1.5 1.5 0 0 0-1.5-1.5H16"/></>,
     sparkles: <><path d="m10 2 1.1 3.1L14 6.5l-2.9 1.4L10 11 8.9 7.9 6 6.5l2.9-1.4L10 2Z"/><path d="m16 11 .8 2.2L19 14l-2.2.8L16 17l-.8-2.2L13 14l2.2-.8L16 11Z"/><path d="m4 12 .7 1.8 1.8.7-1.8.7L4 17l-.7-1.8-1.8-.7 1.8-.7L4 12Z"/></>,
@@ -91,6 +118,7 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
     plus: <><path d="M10 3v14"/><path d="M3 10h14"/></>,
     trash: <><path d="M3 5h14"/><path d="M8 5V3h4v2"/><path d="m5 5 1 13h8l1-13"/><path d="M8 9v5M12 9v5"/></>,
     clock: <><circle cx="10" cy="10" r="8"/><path d="M10 5v5l3 2"/></>,
+    flame: <path d="M11.5 2.5c.5 3-1.5 4.1-2.5 5.7C8 6.9 7.8 5.7 8.2 4.5 5.4 6.4 3.5 9 3.5 12.2A6.5 6.5 0 0 0 16.5 12c0-4-2.2-7.1-5-9.5ZM10 17c-1.7 0-3-1.2-3-2.8 0-1.4.8-2.4 2-3.4 0 1 .3 1.8.9 2.4.9-1 1.6-1.8 1.7-3.3.9 1.1 1.4 2.5 1.4 3.7C13 15.5 11.7 17 10 17Z"/>,
     users: <><path d="M6 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M1 17c.4-3.2 2-5 5-5s4.6 1.8 5 5"/><path d="M14 10a2.5 2.5 0 1 0 0-5"/><path d="M13 12c3 0 4.7 1.7 5 4"/></>,
     arrow: <><path d="M3 10h14"/><path d="m12 5 5 5-5 5"/></>,
     chevron: <path d="m5 8 5 5 5-5"/>,
@@ -119,6 +147,94 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
     >
       {paths[name]}
     </svg>
+  )
+}
+
+function HomeMealCard({ meal, onViewed, variant }) {
+  const [imageFailed, setImageFailed] = useState(false)
+  if (!hasValidRecipePhoto(meal) || imageFailed) return null
+
+  const cookingMinutes = Number.isFinite(meal.cookingMinutes) && meal.cookingMinutes > 0
+    ? Math.round(meal.cookingMinutes)
+    : null
+  const caloriesPerServing = Number.isFinite(meal.caloriesPerServing) && meal.caloriesPerServing > 0
+    ? Math.round(meal.caloriesPerServing)
+    : null
+  const sourceHost = (() => {
+    try {
+      return new URL(meal.sourceUrl).hostname.replace(/^www\./, '')
+    } catch {
+      return meal.sourceName || 'original publisher'
+    }
+  })()
+
+  return (
+    <article className="home-meal-card">
+      <div className="home-meal-image">
+        <a className="home-meal-link" href={meal.sourceUrl} target="_blank" rel="noreferrer" onClick={() => onViewed?.(meal)}>
+          <img
+            src={meal.displayImageUrl || meal.imageUrl}
+            alt={meal.title}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => setImageFailed(true)}
+          />
+          <span className="home-meal-shade" />
+        </a>
+        <small className="home-meal-cuisine">{meal.cuisine || meal.sourceName}</small>
+        {variant === 'trending' && meal.mood && <span className="home-meal-mood">{meal.mood}</span>}
+        <a
+          className="home-meal-credit"
+          href={meal.imageSourceUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Photo credit: ${meal.imageAttributionRequirements}`}
+          title={meal.imageAttributionRequirements}
+        >
+          <span aria-hidden="true">ⓘ</span>
+        </a>
+      </div>
+      <div className="home-meal-body">
+        <a className="home-meal-title" href={meal.sourceUrl} target="_blank" rel="noreferrer" onClick={() => onViewed?.(meal)}>
+          {meal.title}
+        </a>
+        <div className="home-meal-meta" aria-label="Recipe summary">
+          <span aria-label={cookingMinutes ? `${cookingMinutes} minutes` : 'Cooking time not listed'}>
+            <Icon name="clock" size={12} />
+            <strong>{cookingMinutes ? `${cookingMinutes} min` : '—'}</strong>
+          </span>
+          <span aria-label={caloriesPerServing ? `${caloriesPerServing} calories per serving` : 'Calories not listed'}>
+            <Icon name="flame" size={12} />
+            <strong>{caloriesPerServing ? `${caloriesPerServing} CAL` : '—'}</strong>
+          </span>
+        </div>
+        <a className="home-meal-cta" href={meal.sourceUrl} target="_blank" rel="noreferrer" onClick={() => onViewed?.(meal)}>
+          <span>Open {sourceHost}</span>
+          <Icon name="arrow" size={13} />
+        </a>
+      </div>
+    </article>
+  )
+}
+
+function HomeMealRail({ title, subtitle, meals, emptyText, onViewed, variant }) {
+  const validMeals = meals.filter(hasValidRecipePhoto)
+  const headingId = `home-${title.toLowerCase().replaceAll(' ', '-')}`
+
+  return (
+    <section className="home-meal-section" aria-labelledby={headingId}>
+      <div className="home-section-heading">
+        <div>
+          <h2 id={headingId}>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+      </div>
+      {validMeals.length > 0 ? (
+        <div className="home-meal-rail">
+          {validMeals.map((meal) => <HomeMealCard meal={meal} key={meal.id} onViewed={onViewed} variant={variant} />)}
+        </div>
+      ) : <p className="home-meal-empty">{emptyText}</p>}
+    </section>
   )
 }
 
@@ -325,7 +441,7 @@ function FeedbackModal({ onClose }) {
   )
 }
 
-function Stepper({ currentStep }) {
+function Stepper({ currentStep, onStepChange, canReview, canShowResults }) {
   const steps = [
     ['1', 'Show your kitchen'],
     ['2', 'Review ingredients'],
@@ -338,10 +454,13 @@ function Stepper({ currentStep }) {
         const step = index + 1
         const complete = step < currentStep
         const active = step === currentStep
+        const enabled = step === 1 || (step === 2 && canReview) || (step === 3 && canShowResults)
         return (
           <li className={active ? 'active' : complete ? 'complete' : ''} key={number}>
-            <span className="step-number">{complete ? <Icon name="check" size={15} strokeWidth={2.4} /> : number}</span>
-            <span>{label}</span>
+            <button type="button" disabled={!enabled} aria-current={active ? 'step' : undefined} onClick={() => onStepChange(step)}>
+              <span className="step-number">{complete ? <Icon name="check" size={15} strokeWidth={2.4} /> : number}</span>
+              <span>{label}</span>
+            </button>
           </li>
         )
       })}
@@ -415,7 +534,7 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
   const libraryInputRef = useRef(null)
 
   function selectFiles(fileList) {
-    const selected = Array.from(fileList || []).filter((file) => file.type.startsWith('image/'))
+    const selected = Array.from(fileList || [])
     if (selected.length) onFiles(selected)
   }
 
@@ -438,7 +557,7 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
           ref={cameraInputRef}
           className="sr-only"
           type="file"
-          accept="image/*"
+          accept={PHOTO_INPUT_ACCEPT}
           capture="environment"
           disabled={busy || photos.length >= MAX_PHOTO_COUNT}
           onChange={(event) => {
@@ -450,7 +569,7 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
           ref={libraryInputRef}
           className="sr-only"
           type="file"
-          accept="image/*"
+          accept={PHOTO_INPUT_ACCEPT}
           multiple
           disabled={busy || photos.length >= MAX_PHOTO_COUNT}
           onChange={(event) => {
@@ -497,14 +616,22 @@ function PhotoUploader({ photos, onFiles, onRemove, busy }) {
           )}
         </div>
       )}
-      <p className="upload-hint"><Icon name="shield" size={15} /> Your photos are used only to identify food and are not stored by this prototype.</p>
+      <p className="upload-hint"><Icon name="shield" size={15} /> JPEG, PNG, GIF or WebP up to 5 MB; HEIC/HEIF up to 20 MB. HEIC/HEIF is converted privately in your browser. Photos are not stored.</p>
     </div>
   )
 }
 
-function IngredientEditor({ ingredients, onChange, onRemove, onAdd }) {
+function IngredientEditor({ ingredients, onChange, onRemove, onAdd, onClear }) {
   return (
     <div className="ingredient-editor">
+      <div className="ingredient-editor-actions">
+        <button className="text-button" type="button" onClick={onAdd}>
+          <Icon name="plus" size={17} strokeWidth={2.2} /> Add an ingredient
+        </button>
+        <button className="text-button danger" type="button" onClick={onClear}>
+          <Icon name="trash" size={17} /> Clear all
+        </button>
+      </div>
       <div className="ingredient-list">
         {ingredients.map((ingredient) => (
           <div className="ingredient-row" key={ingredient.id}>
@@ -534,9 +661,6 @@ function IngredientEditor({ ingredients, onChange, onRemove, onAdd }) {
           </div>
         ))}
       </div>
-      <button className="text-button" type="button" onClick={onAdd}>
-        <Icon name="plus" size={17} strokeWidth={2.2} /> Add an ingredient
-      </button>
     </div>
   )
 }
@@ -655,8 +779,11 @@ function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick
           {recipe.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
         </div>
         <h3>{recipe.title}</h3>
+        {recipe.matchReason && <p className="recipe-match-reason">{recipe.matchReason}</p>}
         <div className="recipe-meta">
-          <span><Icon name="clock" size={16} /> {recipe.cookingMinutes > 0 ? `${recipe.cookingMinutes} min` : 'See source'}</span>
+          {Number.isFinite(recipe.prepMinutes) && <span><Icon name="clock" size={16} /> Prep {recipe.prepMinutes} min</span>}
+          {Number.isFinite(recipe.cookMinutes) && <span><Icon name="clock" size={16} /> Cook {recipe.cookMinutes} min</span>}
+          {!Number.isFinite(recipe.prepMinutes) && !Number.isFinite(recipe.cookMinutes) && <span><Icon name="clock" size={16} /> {recipe.cookingMinutes > 0 ? `${recipe.cookingMinutes} min total` : 'Time on source'}</span>}
           <span><Icon name="users" size={17} /> {recipe.servings} servings</span>
           <span>{recipe.difficulty}</span>
         </div>
@@ -675,9 +802,9 @@ function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick
         <button type="button" className="recipe-open" onClick={() => onOpen(recipe)}>
           View recipe <Icon name="arrow" size={17} />
         </button>
-        {recipe.sourceUrl && (
+        {recipe.sourceVerified && recipe.sourceUrl && (
           <a className="recipe-source" href={recipe.sourceUrl} target="_blank" rel="noreferrer">
-            <span><small>Original publisher</small><strong>View detailed recipe</strong></span>
+            <span><small>Verified publisher source</small><strong>{recipe.sourceTitle || recipe.sourceName || 'View detailed recipe'}</strong></span>
             <Icon name="external" size={16} />
           </a>
         )}
@@ -686,7 +813,7 @@ function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick
   )
 }
 
-function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePhotos }) {
+function RecipeModal({ recipe, onClose, onStartCooking, safetyNote, onSave, saved, showRecipePhotos }) {
   useEffect(() => {
     function closeOnEscape(event) {
       if (event.key === 'Escape') onClose()
@@ -706,7 +833,7 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
   const hasAiGuide = directionsKind === 'AiGenerated' && directions.length > 0
   const hasProviderDirections = directionsKind === 'Provider' && directions.length > 0
   const missing = new Set(missingIngredients.map((item) => item.name.toLowerCase()))
-  const isSourced = Boolean(recipe.sourceUrl)
+  const isSourced = Boolean(recipe.sourceVerified && recipe.sourceUrl)
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose()
@@ -723,7 +850,9 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
             <span>{recipe.ingredientMatch}% match · {recipe.cuisine}</span>
             <h2 id="recipe-title">{recipe.title}</h2>
             <div className="modal-meta">
-              <span><Icon name="clock" size={17} /> {recipe.cookingMinutes > 0 ? `${recipe.cookingMinutes} min` : 'Time on source'}</span>
+              {Number.isFinite(recipe.prepMinutes) && <span><Icon name="clock" size={17} /> Prep {recipe.prepMinutes} min</span>}
+              {Number.isFinite(recipe.cookMinutes) && <span><Icon name="clock" size={17} /> Cook {recipe.cookMinutes} min</span>}
+              {!Number.isFinite(recipe.prepMinutes) && !Number.isFinite(recipe.cookMinutes) && <span><Icon name="clock" size={17} /> {recipe.cookingMinutes > 0 ? `${recipe.cookingMinutes} min total` : 'Time on source'}</span>}
               <span><Icon name="users" size={18} /> {recipe.servings} servings</span>
               <span>{recipe.difficulty}</span>
             </div>
@@ -731,6 +860,7 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
         </RecipeHeroImage>
         <PhotoAttribution recipe={recipe} showRecipePhotos={showRecipePhotos} />
         <div className="modal-content">
+          {recipe.matchReason && <p className="recipe-match-reason modal-match-reason">{recipe.matchReason}</p>}
           {recipe.winePairing && (
             <p className="wine-pairing modal-wine-pairing"><strong>Rough wine pairing</strong><span>{recipe.winePairing}</span></p>
           )}
@@ -767,6 +897,9 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
                       <p><strong>Provider directions</strong><span>Supplied by {recipe.sourceName || 'the recipe provider'}.</span></p>
                     </div>
                   )}
+                  <button className="start-cooking-button" type="button" onClick={() => onStartCooking(recipe)}>
+                    <Icon name="sparkles" size={18} /> Start step-by-step cooking <Icon name="arrow" size={18} />
+                  </button>
                   <ol className="method-list">
                     {directions.map((step, index) => (
                       <li key={index}><span>{index + 1}</span><p>{step}</p></li>
@@ -796,6 +929,92 @@ function RecipeModal({ recipe, onClose, safetyNote, onSave, saved, showRecipePho
   )
 }
 
+function CookingMode({ recipe, onClose }) {
+  const directions = Array.isArray(recipe.steps)
+    ? recipe.steps.filter((step) => typeof step === 'string' && step.trim())
+    : []
+  const [stepIndex, setStepIndex] = useState(0)
+  const touchStartX = useRef(null)
+  const isAiGuide = recipe.directionsKind === 'AiGenerated'
+
+  useEffect(() => {
+    setStepIndex(0)
+  }, [recipe.id])
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') onClose()
+      if (event.key === 'ArrowRight') setStepIndex((current) => Math.min(current + 1, directions.length - 1))
+      if (event.key === 'ArrowLeft') setStepIndex((current) => Math.max(current - 1, 0))
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    document.body.classList.add('modal-open')
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.classList.remove('modal-open')
+    }
+  }, [directions.length, onClose])
+
+  if (!directions.length) return null
+
+  const isFirst = stepIndex === 0
+  const isLast = stepIndex === directions.length - 1
+
+  function handleTouchStart(event) {
+    touchStartX.current = event.touches.length === 1 ? event.touches[0].clientX : null
+  }
+
+  function handleTouchEnd(event) {
+    if (touchStartX.current === null || !event.changedTouches.length) return
+    const distance = event.changedTouches[0].clientX - touchStartX.current
+    touchStartX.current = null
+    if (Math.abs(distance) < 48) return
+    setStepIndex((current) => distance < 0
+      ? Math.min(current + 1, directions.length - 1)
+      : Math.max(current - 1, 0))
+  }
+
+  return (
+    <section className="cooking-mode" role="dialog" aria-modal="true" aria-labelledby="cooking-mode-title" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+      <header className="cooking-mode-header">
+        <div>
+          <span>{isAiGuide ? 'AI cooking guide' : `Cooking with ${recipe.sourceName || 'the recipe publisher'}`}</span>
+          <h2 id="cooking-mode-title">{recipe.title}</h2>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close cooking mode"><Icon name="close" size={21} /></button>
+      </header>
+
+      <div className="cooking-progress" aria-label={`Step ${stepIndex + 1} of ${directions.length}`}>
+        <span style={{ width: `${((stepIndex + 1) / directions.length) * 100}%` }} />
+      </div>
+
+      <main className="cooking-step" aria-live="polite">
+        <p className="cooking-step-count">Step {stepIndex + 1} of {directions.length}</p>
+        <article key={stepIndex}>
+          <span>{stepIndex + 1}</span>
+          <p>{directions[stepIndex]}</p>
+        </article>
+        <p className="cooking-swipe-hint">Swipe left or right with one finger</p>
+        {isAiGuide && <p className="cooking-source-note"><Icon name="sparkles" size={16} /> AI-generated guidance - confirm it with the original recipe.</p>}
+      </main>
+
+      <footer className="cooking-controls">
+        <button className="cooking-previous" type="button" disabled={isFirst} onClick={() => setStepIndex((current) => Math.max(current - 1, 0))}>
+          <Icon name="arrow" size={18} /> Previous
+        </button>
+        {isLast ? (
+          <button className="cooking-next" type="button" onClick={onClose}>Finish cooking <Icon name="check" size={18} /></button>
+        ) : (
+          <button className="cooking-next" type="button" onClick={() => setStepIndex((current) => Math.min(current + 1, directions.length - 1))}>
+            Next step <Icon name="arrow" size={18} />
+          </button>
+        )}
+        {recipe.sourceUrl && <a href={recipe.sourceUrl} target="_blank" rel="noreferrer">Check original live recipe <Icon name="external" size={14} /></a>}
+      </footer>
+    </section>
+  )
+}
+
 function PhotoAttribution({ recipe, showRecipePhotos, compact = false }) {
   if (!showRecipePhotos || !hasValidRecipePhoto(recipe)) return null
   const isTestOnly = recipe.imageRightsStatus === 'UnverifiedTestOnly'
@@ -814,6 +1033,7 @@ function PhotoAttribution({ recipe, showRecipePhotos, compact = false }) {
 }
 
 export default function App() {
+  const [appScreen, setAppScreen] = useState(getScreenFromHash)
   const [photos, setPhotos] = useState([])
   const [ingredients, setIngredients] = useState(INITIAL_KITCHEN_MEMORY)
   const [allergens, setAllergens] = useState(() => Array.isArray(INITIAL_PREFERENCES.allergens)
@@ -831,6 +1051,13 @@ export default function App() {
   const [servings, setServings] = useState(() => [1, 2, 3, 4, 6].includes(Number(INITIAL_PREFERENCES.servings))
     ? Number(INITIAL_PREFERENCES.servings)
     : DEFAULT_PREFERENCES.servings)
+  const [mainIngredient, setMainIngredient] = useState(() =>
+    typeof INITIAL_PREFERENCES.mainIngredient === 'string'
+      ? INITIAL_PREFERENCES.mainIngredient.slice(0, 100)
+      : '')
+  const [maxRecipes, setMaxRecipes] = useState(() => [3, 4, 5].includes(Number(INITIAL_PREFERENCES.maxRecipes))
+    ? Number(INITIAL_PREFERENCES.maxRecipes)
+    : DEFAULT_PREFERENCES.maxRecipes)
   const [showRecipePhotos, setShowRecipePhotos] = useState(() => typeof INITIAL_PREFERENCES.showRecipePhotos === 'boolean'
     ? INITIAL_PREFERENCES.showRecipePhotos
     : DEFAULT_PREFERENCES.showRecipePhotos)
@@ -840,6 +1067,7 @@ export default function App() {
   )
   const { mode: recipeMode, recipes, availableOnlyRecipes, hasCompletedSearch } = recipeSearch
   const [selectedRecipe, setSelectedRecipe] = useState(null)
+  const [cookingRecipe, setCookingRecipe] = useState(null)
   const [safetyNote, setSafetyNote] = useState('')
   const [provider, setProvider] = useState('Checking…')
   const [usage, setUsage] = useState(null)
@@ -854,17 +1082,27 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(() => window.location.hash === '#admin')
   const [savedRecipes, setSavedRecipes] = useState(INITIAL_SAVED_RECIPES)
   const [history, setHistory] = useState(INITIAL_HISTORY)
+  const [recentRecipes, setRecentRecipes] = useState(INITIAL_RECENT_RECIPES)
   const [reviewStarted, setReviewStarted] = useState(false)
 
   const reviewRef = useRef(null)
   const resultsRef = useRef(null)
   const photoUrlsRef = useRef(new Set())
 
-  const currentStep = hasCompletedSearch ? 3 : reviewStarted ? 2 : 1
+  const currentStep = appScreen === 'results' ? 3 : appScreen === 'review' ? 2 : 1
   const validIngredients = useMemo(
     () => ingredients.filter((item) => item.name.trim()),
     [ingredients],
   )
+
+  useEffect(() => {
+    const selected = validIngredients.find((item) =>
+      item.name.trim().toLowerCase() === mainIngredient.trim().toLowerCase())
+    if (!selected)
+    {
+      setMainIngredient(validIngredients[0]?.name.trim() || '')
+    }
+  }, [validIngredients, mainIngredient])
   const visibleRecipes = useMemo(
     () => getRecipesForMode(recipes, recipeMode, availableOnlyRecipes),
     [recipes, availableOnlyRecipes, recipeMode],
@@ -893,14 +1131,27 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const syncAdminRoute = () => setShowAdmin(window.location.hash === '#admin')
-    window.addEventListener('hashchange', syncAdminRoute)
-    return () => window.removeEventListener('hashchange', syncAdminRoute)
-  }, [])
+    const syncRoute = () => {
+      const hash = window.location.hash.replace(/^#/, '')
+      setShowAdmin(hash === 'admin')
+      if (APP_SCREENS.has(hash)) {
+        const nextScreen = hash === 'results' && !hasCompletedSearch
+          ? ingredients.length > 0 ? 'review' : 'scan'
+          : hash
+        setAppScreen(nextScreen)
+      }
+    }
+    window.addEventListener('hashchange', syncRoute)
+    window.addEventListener('popstate', syncRoute)
+    return () => {
+      window.removeEventListener('hashchange', syncRoute)
+      window.removeEventListener('popstate', syncRoute)
+    }
+  }, [hasCompletedSearch, ingredients.length])
 
   useEffect(() => {
-    savePreferences({ allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, showRecipePhotos })
-  }, [allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, showRecipePhotos])
+    savePreferences({ allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, mainIngredient, maxRecipes, showRecipePhotos })
+  }, [allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, mainIngredient, maxRecipes, showRecipePhotos])
 
   useEffect(() => {
     if (busy !== 'generating') return
@@ -910,6 +1161,44 @@ export default function App() {
     return () => window.cancelAnimationFrame(frame)
   }, [busy])
 
+  function goToScreen(nextScreen) {
+    setShowAdmin(false)
+    setAppScreen(nextScreen)
+    const nextHash = `#${nextScreen}`
+    if (window.location.hash !== nextHash) window.history.pushState(null, '', nextHash)
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
+  }
+
+  function leaveAdminForOverlay() {
+    setShowAdmin(false)
+    if (window.location.hash === '#admin') {
+      setAppScreen('home')
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#home`)
+    }
+  }
+
+  function openLibraryFromNavigation() {
+    leaveAdminForOverlay()
+    setShowLibrary(true)
+  }
+
+  function openFeedbackFromNavigation() {
+    leaveAdminForOverlay()
+    setShowFeedback(true)
+  }
+
+  function handleWorkflowStepChange(step) {
+    if (step === 1) goToScreen('scan')
+    if (step === 2 && ingredients.length > 0) goToScreen('review')
+    if (step === 3 && hasCompletedSearch) goToScreen('results')
+  }
+
+  function goBackFromWorkflow() {
+    if (appScreen === 'results') goToScreen('review')
+    else if (appScreen === 'review') goToScreen('scan')
+    else goToScreen('home')
+  }
+
   function invalidateRecipeResults() {
     dispatchRecipeSearch({ type: 'invalidate' })
     setSelectedRecipe(null)
@@ -917,23 +1206,63 @@ export default function App() {
     setNotice('')
   }
 
-  function addPhotos(files) {
+  function openRecipe(recipe) {
+    setSelectedRecipe(recipe)
+    rememberViewedRecipe(recipe)
+  }
+
+  function rememberViewedRecipe(recipe) {
+    if (!hasValidRecipePhoto(recipe)) return
+    setRecentRecipes((current) => addRecentlyViewedRecipe(current, recipe))
+  }
+
+  async function addPhotos(files) {
     setError('')
     setReviewStarted(false)
-    const supported = files.filter((file) => SUPPORTED_IMAGE_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES)
-    if (supported.length !== files.length) {
-      setError('Use JPEG, PNG, GIF, or WebP photos no larger than 5 MB each.')
-    }
     const remaining = MAX_PHOTO_COUNT - photos.length
-    const accepted = supported.slice(0, remaining)
-    if (supported.length > remaining) setError(`You can add up to ${MAX_PHOTO_COUNT} photos at a time.`)
-    const additions = accepted.map((file) => {
-      const url = URL.createObjectURL(file)
-      photoUrlsRef.current.add(url)
-      return { id: crypto.randomUUID(), file, url }
-    })
-    setPhotos((current) => [...current, ...additions])
     invalidateRecipeResults()
+    if (remaining <= 0) {
+      setError(`You can add up to ${MAX_PHOTO_COUNT} photos at a time.`)
+      return
+    }
+
+    const candidates = files.slice(0, remaining)
+    const needsHeicConversion = candidates.some(isHeicPhoto)
+    const prepared = []
+    const rejected = []
+    if (needsHeicConversion) {
+      setBusy('preparingPhotos')
+      setNotice('Converting HEIC/HEIF photos to JPEG on this device...')
+    }
+
+    try {
+      for (const candidate of candidates) {
+        try {
+          prepared.push(await preparePhotoFile(candidate))
+        } catch (preparationError) {
+          rejected.push(preparationError.message)
+        }
+      }
+
+      const additions = prepared.map(({ file }) => {
+        const url = URL.createObjectURL(file)
+        photoUrlsRef.current.add(url)
+        return { id: crypto.randomUUID(), file, url }
+      })
+      if (additions.length) setPhotos((current) => [...current, ...additions])
+
+      const convertedCount = prepared.filter((item) => item.convertedFromHeic).length
+      if (convertedCount) {
+        setNotice(`${convertedCount} HEIC/HEIF photo${convertedCount === 1 ? ' was' : 's were'} converted to JPEG and ${convertedCount === 1 ? 'is' : 'are'} ready to scan.`)
+      }
+      if (rejected.length) {
+        setError(`${rejected.length} photo${rejected.length === 1 ? ' was' : 's were'} skipped. ${rejected[0]}`)
+      } else if (files.length > remaining) {
+        setError(`Only the first ${remaining} photos were added because the limit is ${MAX_PHOTO_COUNT}.`)
+      }
+    } finally {
+      if (needsHeicConversion) setBusy('')
+    }
   }
 
   function removePhoto(id) {
@@ -985,7 +1314,7 @@ export default function App() {
         : ''
       const memoryNotice = `${rememberedIngredients.length} ingredient${rememberedIngredients.length === 1 ? '' : 's'} saved in Kitchen Memory.`
       setNotice([result.notice, ignoredNotice, failedNotice, memoryNotice].filter(Boolean).join(' '))
-      requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      goToScreen('review')
     } catch (requestError) {
       setError(requestError.message)
     } finally {
@@ -1010,6 +1339,12 @@ export default function App() {
     ])
   }
 
+  function clearKitchenMemoryList() {
+    if (!window.confirm('Clear every ingredient from Kitchen Memory?')) return
+    updateKitchenMemory([])
+    setNotice('Kitchen Memory cleared. Your photos and preferences were kept.')
+  }
+
   function toggleAllergen(allergen) {
     setReviewStarted(true)
     invalidateRecipeResults()
@@ -1021,6 +1356,7 @@ export default function App() {
   async function runRecipeSearch(onlyUseAvailableIngredients, preserveExistingResults) {
     if (!validIngredients.length) return
     setReviewStarted(true)
+    goToScreen('results')
     setBusy('generating')
     if (!preserveExistingResults) {
       dispatchRecipeSearch({ type: 'searchStarted' })
@@ -1035,8 +1371,10 @@ export default function App() {
         allergens,
         avoidIngredients: avoidText.split(',').map((item) => item.trim()).filter(Boolean),
         dietaryPreference,
+        mainIngredient: mainIngredient || validIngredients[0]?.name || '',
         maxCookingMinutes: Number(maxCookingMinutes),
         servings: Number(servings),
+        maxRecipes: Number(maxRecipes),
         showPhotos: showRecipePhotos,
         onlyUseAvailableIngredients,
         recentlyShownRecipeIds: getRecentlyShownRecipeIds(history),
@@ -1050,7 +1388,6 @@ export default function App() {
       setProvider(result.provider)
       setNotice(result.notice || '')
       setHistory((current) => addHistoryEntry(current, request, result))
-      requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
       return true
     } catch (requestError) {
       if (!preserveExistingResults) {
@@ -1152,13 +1489,15 @@ export default function App() {
     setAllergens(Array.isArray(entry.allergens) ? entry.allergens.filter((item) => ALLERGENS.includes(item)) : [])
     setAvoidText(Array.isArray(entry.avoidIngredients) ? entry.avoidIngredients.join(', ').slice(0, 220) : '')
     setDietaryPreference(DIETARY_OPTIONS.includes(entry.dietaryPreference) ? entry.dietaryPreference : 'Anything')
+    setMainIngredient(typeof entry.mainIngredient === 'string' ? entry.mainIngredient.slice(0, 100) : restoredIngredients[0].name)
     setMaxCookingMinutes(COOKING_TIME_OPTIONS.includes(Number(entry.maxCookingMinutes)) ? Number(entry.maxCookingMinutes) : 45)
     setServings([1, 2, 3, 4, 6].includes(Number(entry.servings)) ? Number(entry.servings) : 2)
+    setMaxRecipes([3, 4, 5].includes(Number(entry.maxRecipes)) ? Number(entry.maxRecipes) : 5)
     invalidateRecipeResults()
     setShowLibrary(false)
     setError('')
     setNotice('Your previous ingredients and settings are ready to review.')
-    requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    goToScreen('review')
   }
 
   function openAdmin() {
@@ -1168,24 +1507,18 @@ export default function App() {
 
   function closeAdmin() {
     setShowAdmin(false)
-    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#top`)
+    setAppScreen('home')
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#home`)
   }
 
   return (
     <>
       <header className="site-header">
-        <a className="brand" href="#top" aria-label="Mise home">
+        <a className="brand" href="#home" aria-label="PLATE home" onClick={() => setAppScreen('home')}>
           <span className="brand-mark"><Icon name="leaf" size={23} strokeWidth={2} /></span>
-          <span>mise</span>
+          <span>PLATE</span>
         </a>
         <nav aria-label="Main navigation">
-          <a href="#how-it-works">How it works</a>
-          <button className="library-button" type="button" onClick={() => setShowLibrary(true)}>
-            <Icon name="bookmark" size={15} /> Saved {savedRecipes.length > 0 && <span>{savedRecipes.length}</span>}
-          </button>
-          <button className={`library-button ${showAdmin ? 'active' : ''}`} type="button" onClick={openAdmin}>
-            <Icon name="settings" size={15} /> Admin
-          </button>
           <span className={`provider-badge ${provider === 'Azure OpenAI' || provider === 'Azure Web Search' || provider === 'Edamam' ? 'live' : ''}`}>
             <span /> {provider}
           </span>
@@ -1193,29 +1526,65 @@ export default function App() {
       </header>
 
       <main id="top" aria-busy={Boolean(busy)}>
-        <section className="hero">
+        {appScreen === 'home' && <section className="hero">
           <div className="hero-copy">
-            <p className="eyebrow"><Icon name="sparkles" size={17} /> Your kitchen, reimagined</p>
-            <h1>Make something<br /><em>wonderful.</em></h1>
-            <p className="hero-lead">Show us what you have. We’ll turn everyday ingredients into thoughtful recipes made for you.</p>
+            <p className="hero-greeting">{getGreeting()}</p>
+            <h1><span>What’s in your kitchen</span><br /><em>today?</em></h1>
+            <p className="hero-lead">Your kitchen is thriving — let’s cook something new.</p>
           </div>
-          <div className="hero-note" aria-hidden="true">
-            <span className="note-leaf">🌿</span>
-            <p>Tonight’s little reminder</p>
-            <strong>The best meal might already be in your kitchen.</strong>
-            <div className="scribble">cook what you have ↗</div>
+          <div className="home-actions">
+            <button className="hero-note" type="button" onClick={() => goToScreen('scan')}>
+              <span className="hero-scan-icon"><Icon name="scan" size={26} strokeWidth={1.7} /></span>
+              <span className="hero-note-copy"><strong>AI Ingredient Scan</strong><small>Snap your fridge, get instant meals</small></span>
+              <Icon name="sparkles" size={22} strokeWidth={1.6} />
+            </button>
+            {ingredients.length > 0 && (
+              <button className="hero-note hero-memory" type="button" onClick={() => goToScreen('review')}>
+                <span className="hero-scan-icon"><Icon name="edit" size={24} /></span>
+                <span className="hero-note-copy"><strong>Kitchen Memory</strong><small>Review {ingredients.length} saved ingredient{ingredients.length === 1 ? '' : 's'}</small></span>
+                <Icon name="arrow" size={20} />
+              </button>
+            )}
           </div>
-        </section>
+          {showRecipePhotos && (
+            <HomeMealRail
+              title="Recently viewed"
+              subtitle="Real recipes you opened before."
+              meals={recentRecipes}
+              emptyText="Open a recipe with a verified photo and it will appear here."
+              onViewed={rememberViewedRecipe}
+              variant="recent"
+            />
+          )}
+          {showRecipePhotos && (
+            <HomeMealRail
+              title="Trending meals"
+              subtitle="Popular ideas from real recipe publishers."
+              meals={TRENDING_MEALS}
+              onViewed={rememberViewedRecipe}
+              variant="trending"
+            />
+          )}
+        </section>}
 
-        <section className="creator" id="how-it-works">
-          <Stepper currentStep={currentStep} />
+        {appScreen !== 'home' && <section className="creator workflow-screen" id="how-it-works">
+          <div className="workflow-toolbar">
+            <button type="button" onClick={goBackFromWorkflow}><Icon name="arrow" size={16} /> Back</button>
+            <span>{appScreen === 'scan' ? 'Kitchen scan' : appScreen === 'review' ? 'Kitchen Memory' : 'Recipe matches'}</span>
+          </div>
+          <Stepper
+            currentStep={currentStep}
+            canReview={ingredients.length > 0}
+            canShowResults={hasCompletedSearch}
+            onStepChange={handleWorkflowStepChange}
+          />
 
-          <div className="work-card">
+          {appScreen === 'scan' && <div className="work-card screen-card">
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Step one</p>
                 <h2>What’s in your kitchen?</h2>
-                <p>Add up to six clear photos. Different angles help us spot more ingredients.</p>
+                <p>Add up to 50 clear photos. Different angles help us spot more ingredients.</p>
               </div>
               <span className="section-number">01</span>
             </div>
@@ -1227,12 +1596,12 @@ export default function App() {
               </button>
             </div>
             {busy === 'analyzing' && <LoadingExperience mode="analyzing" />}
-          </div>
+          </div>}
 
           {error && <div className="alert error" role="alert"><span>!</span><p>{error}</p></div>}
           {notice && <div className="alert info" role="status"><Icon name="sparkles" size={19} /><p>{notice}</p></div>}
 
-          {ingredients.length > 0 && (
+          {appScreen === 'review' && ingredients.length > 0 && (
             <section className="review-section" ref={reviewRef}>
               <div className="section-heading outside">
                 <div>
@@ -1254,6 +1623,7 @@ export default function App() {
                     onChange={updateIngredient}
                     onRemove={(id) => updateKitchenMemory((current) => current.filter((item) => item.id !== id))}
                     onAdd={addIngredient}
+                    onClear={clearKitchenMemoryList}
                   />
                 </div>
 
@@ -1275,6 +1645,27 @@ export default function App() {
                           {DIETARY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
                         </select>
                         <Icon name="chevron" size={16} />
+                      </div>
+                    </div>
+                    <div className="field-pair">
+                      <div className="field-group">
+                        <label htmlFor="main-ingredient">Main ingredient</label>
+                        <div className="select-wrap">
+                          <select id="main-ingredient" value={mainIngredient} onChange={(event) => { setReviewStarted(true); setMainIngredient(event.target.value); invalidateRecipeResults() }}>
+                            {validIngredients.map((ingredient) => <option value={ingredient.name} key={ingredient.id}>{ingredient.name}</option>)}
+                          </select>
+                          <Icon name="chevron" size={16} />
+                        </div>
+                        <p className="field-help">Every result must use this ingredient.</p>
+                      </div>
+                      <div className="field-group">
+                        <label htmlFor="max-recipes">Results</label>
+                        <div className="select-wrap">
+                          <select id="max-recipes" value={maxRecipes} onChange={(event) => { setReviewStarted(true); setMaxRecipes(Number(event.target.value)); invalidateRecipeResults() }}>
+                            {[3, 4, 5].map((value) => <option value={value} key={value}>{value} recipes</option>)}
+                          </select>
+                          <Icon name="chevron" size={16} />
+                        </div>
                       </div>
                     </div>
                     <div className="field-pair">
@@ -1342,6 +1733,16 @@ export default function App() {
             </section>
           )}
 
+          {appScreen === 'review' && ingredients.length === 0 && (
+            <section className="workflow-empty" role="status">
+              <span><Icon name="scan" size={30} /></span>
+              <h2>Your Kitchen Memory is empty</h2>
+              <p>Scan your kitchen or add photos to create an editable ingredient list.</p>
+              <button className="primary-button" type="button" onClick={() => goToScreen('scan')}>Scan my kitchen <Icon name="arrow" size={18} /></button>
+            </section>
+          )}
+
+          {appScreen === 'results' && <>
           {busy === 'generating' && <LoadingExperience mode="generating" />}
 
           {hasCompletedSearch && (
@@ -1406,7 +1807,7 @@ export default function App() {
                   {visibleRecipes.map((recipe, index) => (
                     <RecipeCard
                       recipe={recipe}
-                      onOpen={setSelectedRecipe}
+                      onOpen={openRecipe}
                       onSave={toggleSaved}
                       saved={savedRecipes.some((item) => item.id === recipe.id)}
                       showRecipePhotos={showRecipePhotos}
@@ -1420,37 +1821,45 @@ export default function App() {
               {visibleRecipes.length > 0 && <div className="safety-note results-safety"><Icon name="shield" size={18} /><p>{safetyNote}</p></div>}
             </section>
           )}
-        </section>
+          </>}
+        </section>}
       </main>
 
-      <footer>
-        <a className="brand muted" href="#top"><span className="brand-mark"><Icon name="leaf" size={19} /></span><span>mise</span></a>
-        <p>Waste less. Cook more. Eat beautifully.</p>
-        <button className="footer-link" type="button" onClick={() => setShowLibrary(true)}>Saved & history</button>
-        <button className="footer-link" type="button" onClick={() => setShowFeedback(true)}>Feedback</button>
-        <button className="footer-link" type="button" onClick={() => setShowPrivacy(true)}>Privacy & data</button>
-        <span>Prototype · 2026</span>
-      </footer>
+      <nav className="bottom-nav" aria-label="PLATE navigation">
+        <div className="bottom-nav-glass">
+          <button className={appScreen === 'home' && !showAdmin ? 'active' : ''} type="button" onClick={() => goToScreen('home')}><Icon name="home" size={19} /><span>Home</span></button>
+          <button className={appScreen !== 'home' && !showAdmin ? 'active' : ''} type="button" onClick={() => goToScreen('scan')}><Icon name="scan" size={19} /><span>Scan</span></button>
+          <button className={showLibrary ? 'active' : ''} type="button" onClick={openLibraryFromNavigation}>
+            <span className="bottom-nav-icon"><Icon name="bookmark" size={19} />{savedRecipes.length > 0 && <i>{savedRecipes.length}</i>}</span>
+            <span>Saved</span>
+          </button>
+          <button className={showFeedback ? 'active' : ''} type="button" onClick={openFeedbackFromNavigation}><Icon name="message" size={19} /><span>Feedback</span></button>
+          <button className={showAdmin ? 'active' : ''} type="button" onClick={openAdmin}><Icon name="settings" size={19} /><span>Admin</span></button>
+        </div>
+      </nav>
 
       {selectedRecipe && <RecipeModal
         recipe={selectedRecipe}
         safetyNote={safetyNote || DEFAULT_SAFETY_NOTE}
         onClose={() => setSelectedRecipe(null)}
+        onStartCooking={(recipe) => { setSelectedRecipe(null); setCookingRecipe(recipe) }}
         onSave={toggleSaved}
         saved={savedRecipes.some((item) => item.id === selectedRecipe.id)}
         showRecipePhotos={showRecipePhotos}
       />}
+      {cookingRecipe && <CookingMode recipe={cookingRecipe} onClose={() => setCookingRecipe(null)} />}
       {showLibrary && <LibraryModal
         savedRecipes={savedRecipes}
         history={history}
         onClose={() => setShowLibrary(false)}
-        onOpenRecipe={(recipe) => { setShowLibrary(false); setSelectedRecipe(recipe) }}
+        onOpenRecipe={(recipe) => { setShowLibrary(false); openRecipe(recipe) }}
         onRemove={(id) => setSavedRecipes((current) => removeSavedRecipe(current, id))}
         onRestore={restoreHistory}
         onClear={() => {
           clearLibrary()
           setSavedRecipes([])
           setHistory([])
+          setRecentRecipes([])
         }}
       />}
       {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}

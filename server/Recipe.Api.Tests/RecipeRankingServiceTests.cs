@@ -61,6 +61,38 @@ public sealed class RecipeRankingServiceTests
     }
 
     [Fact]
+    public void Search_focus_uses_a_main_food_and_compatible_substantial_ingredients()
+    {
+        var ingredients = new[]
+        {
+            new IngredientInput("mustard jar", "1 jar"),
+            new IngredientInput("bottle of juice", "2 bottles"),
+            new IngredientInput("red bell pepper", "1"),
+            new IngredientInput("onion", "1"),
+            new IngredientInput("tomatoes", "2"),
+            new IngredientInput("potatoes", "3"),
+            new IngredientInput("spinach", "1 bunch"),
+            new IngredientInput("raw chicken breast", "1 piece"),
+            new IngredientInput("brown eggs", "8"),
+            new IngredientInput("packaged sliced bread", "1 pack"),
+            new IngredientInput("bottle of milk", "1 bottle")
+        };
+
+        Assert.Equal(
+            ["chicken", "potato", "bread", "bell pepper", "onion", "tomato"],
+            _normalizer.SelectRecipeSearchFocus(ingredients, 6));
+        Assert.Equal(
+            "egg",
+            _normalizer.SelectRecipeSearchFocus(ingredients, 6, variation: 1)[0]);
+        Assert.Equal(
+            "potato",
+            _normalizer.SelectRecipeSearchFocus(
+                ingredients,
+                6,
+                mainIngredient: "potatoes")[0]);
+    }
+
+    [Fact]
     public void Match_finds_missing_ingredients_and_ignores_pantry_basics()
     {
         var service = new RecipeRankingService(_normalizer);
@@ -76,7 +108,9 @@ public sealed class RecipeRankingServiceTests
 
         Assert.Equal(2, match.RequiredIngredientCount);
         Assert.Equal(1, match.AvailableIngredientCount);
-        Assert.Equal(50, match.MatchPercentage);
+        Assert.Equal(70, match.MatchPercentage);
+        Assert.Equal(1d, match.Coverage);
+        Assert.Equal(0.5d, match.Availability);
         var missing = Assert.Single(match.MissingIngredients);
         Assert.Equal("Garlic", missing.Name);
         Assert.Equal(2, missing.Quantity);
@@ -233,6 +267,26 @@ public sealed class RecipeRankingServiceTests
     }
 
     [Fact]
+    public void Ranking_rejects_every_recipe_without_the_selected_main_ingredient()
+    {
+        var service = new RecipeRankingService(_normalizer);
+        var chicken = Recipe("Chicken and onion", "chicken", "onion");
+        var potato = Recipe("Potato and onion", "potato", "onion");
+
+        var ranked = service.Rank(
+            [potato, chicken],
+            [
+                new IngredientInput("chicken breast", "300 g"),
+                new IngredientInput("potato", "3"),
+                new IngredientInput("onion", "1")
+            ],
+            mainIngredient: "chicken breast");
+
+        Assert.Equal(chicken.Id, Assert.Single(ranked).Id);
+        Assert.Contains("100% match", ranked[0].MatchReason);
+    }
+
+    [Fact]
     public void Recipe_serializes_real_image_and_match_fields()
     {
         var service = new RecipeRankingService(_normalizer);
@@ -244,7 +298,12 @@ public sealed class RecipeRankingServiceTests
                 ImageLicenseType = "CC BY 4.0",
                 ImageLicenseUrl = "https://creativecommons.org/licenses/by/4.0/",
                 ImageAttributionRequirements = "Credit the photographer and link the source and license.",
-                ImageRightsStatus = RecipeImageRightsStatuses.VerifiedCommercial
+                ImageRightsStatus = RecipeImageRightsStatuses.VerifiedCommercial,
+                ImageProvider = "Wikimedia Commons",
+                ImageCreator = "Example Photographer",
+                ImageCommercialUseAllowed = true,
+                ImageAttributionRequired = true,
+                ImageVerified = true
             }],
             [new IngredientInput("salmon fillets", "2")]);
 
@@ -258,7 +317,10 @@ public sealed class RecipeRankingServiceTests
         Assert.Contains("\"imageRightsStatus\":\"VerifiedCommercial\"", json);
         Assert.Contains("\"availableIngredients\"", json);
         Assert.Contains("\"missingIngredients\"", json);
-        Assert.Contains("\"ingredientMatch\":50", json);
+        Assert.Contains("\"ingredientMatch\":70", json);
+        Assert.Contains("\"matchReason\":\"70% match", json);
+        Assert.Contains("\"imageProvider\":\"Wikimedia Commons\"", json);
+        Assert.Contains("\"imageVerified\":true", json);
     }
 
     private static RecipeSuggestion Recipe(string title, params string[] ingredients) => new(

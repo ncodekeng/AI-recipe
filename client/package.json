@@ -10,6 +10,7 @@
     "test": "node --test src/*.test.js"
   },
   "dependencies": {
+    "heic-to": "^1.5.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

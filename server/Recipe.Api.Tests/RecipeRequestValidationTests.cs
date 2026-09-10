@@ -59,4 +59,25 @@ public sealed class RecipeRequestValidationTests
             [],
             validateAllProperties: true));
     }
+
+    [Theory]
+    [InlineData(2, false)]
+    [InlineData(3, true)]
+    [InlineData(5, true)]
+    [InlineData(6, false)]
+    public void Supports_three_to_five_requested_recipes(int count, bool expectedValid)
+    {
+        var request = new GenerateRecipesRequest
+        {
+            Ingredients = [new IngredientInput("chicken", "300 g")],
+            MainIngredient = "chicken",
+            MaxRecipes = count
+        };
+
+        Assert.Equal(expectedValid, Validator.TryValidateObject(
+            request,
+            new ValidationContext(request),
+            [],
+            validateAllProperties: true));
+    }
 }

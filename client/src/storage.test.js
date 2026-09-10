@@ -116,3 +116,14 @@ test('Kitchen Memory keeps up to 100 ingredients', () => {
   assert.equal(saved.at(-1).name, 'Ingredient 100')
   delete globalThis.localStorage
 })
+
+test('Kitchen Memory can be cleared in one action', () => {
+  installLocalStorage()
+  saveKitchenMemory([{ id: 'one', name: 'Potato', quantity: '3' }])
+
+  const cleared = saveKitchenMemory([])
+
+  assert.deepEqual(cleared, [])
+  assert.deepEqual(loadKitchenMemory(), [])
+  delete globalThis.localStorage
+})

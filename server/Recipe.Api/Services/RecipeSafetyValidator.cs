@@ -15,6 +15,7 @@ public sealed class RecipeSafetyValidator
         {
             if (string.IsNullOrWhiteSpace(recipe.Title) ||
                 recipe.Ingredients.Count == 0 ||
+                !recipe.SourceVerified ||
                 !Uri.TryCreate(recipe.SourceUrl, UriKind.Absolute, out var sourceUri) ||
                 sourceUri.Scheme != Uri.UriSchemeHttps)
             {

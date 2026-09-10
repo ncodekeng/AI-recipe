@@ -25,12 +25,17 @@ public sealed class AzureGroundedRecipeClientTests
         var recipe = Assert.Single(response.Recipes);
         Assert.Equal("Azure Web Search", response.Provider);
         Assert.Equal(sourceUrl, recipe.SourceUrl);
+        Assert.True(recipe.SourceVerified);
         Assert.Equal("publisher.example.test", recipe.SourceName);
+        Assert.Equal("Publisher lamb stew", recipe.SourceTitle);
         Assert.Equal("Cotes du Rhone", recipe.WinePairing);
         Assert.Equal("Real recipe from publisher.example.test.", recipe.Description);
         Assert.Null(recipe.ImageUrl);
         Assert.Equal(RecipeDirectionsKinds.AiGenerated, recipe.DirectionsKind);
         Assert.Equal(2, recipe.Steps.Count);
+        Assert.Null(recipe.CaloriesPerServing);
+        Assert.Equal(15, recipe.PrepMinutes);
+        Assert.Equal(60, recipe.CookMinutes);
         Assert.StartsWith("Brown the lamb", recipe.Steps[0], StringComparison.Ordinal);
 
         Assert.Equal("https://test.openai.azure.com/openai/v1/responses", handler.RequestUri?.ToString());
@@ -44,7 +49,10 @@ public sealed class AzureGroundedRecipeClientTests
         Assert.Contains("lamb", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("cookingGuideSteps", handler.RequestBody, StringComparison.Ordinal);
         Assert.Contains("not publisher instructions", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("search hypotheses", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cited recipe page", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("traditional 1-to-3-missing match", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("caloriesPerServing", handler.RequestBody, StringComparison.Ordinal);
         Assert.Contains("one small batch", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\"description\"", handler.RequestBody, StringComparison.Ordinal);
         using var requestDocument = JsonDocument.Parse(handler.RequestBody);
@@ -53,6 +61,21 @@ public sealed class AzureGroundedRecipeClientTests
         Assert.Equal(3, inputDocument.RootElement.GetProperty("minimumCandidateCount").GetInt32());
         Assert.False(requestDocument.RootElement.TryGetProperty("text", out _));
         Assert.False(requestDocument.RootElement.TryGetProperty("response_format", out _));
+    }
+
+    [Fact]
+    public async Task Keeps_publisher_supported_calories_per_serving()
+    {
+        const string sourceUrl = "https://publisher.example.test/lamb-stew-with-nutrition";
+        var client = CreateClient(new CapturingHandler(Response(
+            sourceUrl,
+            sourceUrl,
+            "Cotes du Rhone",
+            caloriesPerServing: 512)));
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(512, Assert.Single(response.Recipes).CaloriesPerServing);
     }
 
     [Fact]
@@ -68,6 +91,29 @@ public sealed class AzureGroundedRecipeClientTests
             client.FindRecipesAsync(Request(), CancellationToken.None));
 
         Assert.Contains("verifiable", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Main_ingredient_is_sent_first_and_required_in_the_cited_recipe()
+    {
+        const string sourceUrl = "https://publisher.example.test/potato-onion";
+        var handler = new CapturingHandler(
+            ResponseWithIngredients(sourceUrl, "Potato and onion", "potato", "onion"));
+        var client = CreateClient(handler);
+
+        var exception = await Assert.ThrowsAsync<RecipeSafetyException>(() =>
+            client.FindRecipesAsync(
+                Request(mainIngredient: "lamb"),
+                CancellationToken.None));
+
+        Assert.Contains("verifiable", exception.Message, StringComparison.OrdinalIgnoreCase);
+        using var requestDocument = JsonDocument.Parse(handler.RequestBody);
+        using var inputDocument = JsonDocument.Parse(requestDocument.RootElement.GetProperty("input").GetString()!);
+        Assert.Equal("lamb", inputDocument.RootElement.GetProperty("mainIngredient").GetString());
+        Assert.Equal(
+            "lamb",
+            inputDocument.RootElement.GetProperty("searchFocusIngredientNames")[0].GetString());
+        Assert.Contains("mandatory", handler.RequestBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -338,6 +384,16 @@ public sealed class AzureGroundedRecipeClientTests
         Assert.Contains("cream cheese", availableNames);
         Assert.Contains("soy sauce", availableNames);
         Assert.DoesNotContain("yogurt tub", availableNames);
+        var searchFocus = inputDocument.RootElement
+            .GetProperty("searchFocusIngredientNames")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .ToList();
+        Assert.Equal("chicken", searchFocus[0]);
+        Assert.Contains("potato", searchFocus);
+        Assert.Contains("bread", searchFocus);
+        Assert.DoesNotContain("mustard", searchFocus);
+        Assert.DoesNotContain("juice", searchFocus);
         Assert.Equal(
             ["salt", "black pepper", "water", "olive oil", "cooking oil"],
             inputDocument.RootElement.GetProperty("allowedPantryStaples").EnumerateArray().Select(item => item.GetString()));
@@ -443,12 +499,14 @@ public sealed class AzureGroundedRecipeClientTests
     private static GenerateRecipesRequest Request(
         string diet = "Anything",
         int maxCookingMinutes = 90,
-        bool onlyUseAvailableIngredients = false) => new()
+        bool onlyUseAvailableIngredients = false,
+        string mainIngredient = "") => new()
     {
         Ingredients = [new IngredientInput("lamb", "500 g")],
         DietaryPreference = diet,
         MaxCookingMinutes = maxCookingMinutes,
         Servings = 2,
+        MainIngredient = mainIngredient,
         OnlyUseAvailableIngredients = onlyUseAvailableIngredients
     };
 
@@ -496,7 +554,8 @@ public sealed class AzureGroundedRecipeClientTests
         string recipeUrl,
         string winePairing,
         bool wrapInText = false,
-        string[]? tags = null)
+        string[]? tags = null,
+        int? caloriesPerServing = null)
     {
         var recipePayload = JsonSerializer.Serialize(new
         {
@@ -506,6 +565,9 @@ public sealed class AzureGroundedRecipeClientTests
                 {
                     title = "Publisher lamb stew",
                     cookingMinutes = 75,
+                    prepMinutes = 15,
+                    cookMinutes = 60,
+                    caloriesPerServing,
                     difficulty = "Medium",
                     cuisine = "British",
                     servings = 2,

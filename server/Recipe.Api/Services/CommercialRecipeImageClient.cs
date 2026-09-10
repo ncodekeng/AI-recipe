@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.WebUtilities;
@@ -12,6 +11,7 @@ public sealed class CommercialRecipeImageClient(
     HttpClient httpClient,
     IOptions<RecipeCatalogOptions> options,
     IHostEnvironment environment,
+    RecipePhotoCache photoCache,
     ILogger<CommercialRecipeImageClient> logger)
 {
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
@@ -25,7 +25,8 @@ public sealed class CommercialRecipeImageClient(
     private readonly bool _allowUnverifiedForTesting =
         environment.IsDevelopment() && options.Value.CommercialImages.AllowUnverifiedForTesting;
 
-    public bool IsEnabled => _options.Enabled;
+    public bool IsEnabled => _options.Enabled && (_options.AllowedProviders ?? []).Any(provider =>
+        provider.Equals("WikimediaCommons", StringComparison.OrdinalIgnoreCase));
 
     public async Task<CommercialRecipeImage?> FindAsync(
         string dishName,
@@ -34,6 +35,10 @@ public sealed class CommercialRecipeImageClient(
         if (!IsEnabled || string.IsNullOrWhiteSpace(dishName))
         {
             return null;
+        }
+        if (photoCache.TryGet(dishName, out var cached))
+        {
+            return cached;
         }
 
         var query = QueryHelpers.AddQueryString("w/api.php", new Dictionary<string, string?>
@@ -64,7 +69,17 @@ public sealed class CommercialRecipeImageClient(
                 return null;
             }
 
-            var payload = await response.Content.ReadFromJsonAsync<CommonsResponse>(cancellationToken);
+            var responseBytes = await ReadBoundedAsync(
+                response.Content,
+                Math.Clamp(_options.MaxResponseBytes, 32_768, 4 * 1024 * 1024),
+                cancellationToken);
+            if (responseBytes is null)
+            {
+                logger.LogWarning("Commercial-image metadata response exceeded the configured size limit.");
+                return null;
+            }
+
+            var payload = System.Text.Json.JsonSerializer.Deserialize<CommonsResponse>(responseBytes);
             CommercialRecipeImage? unverifiedFallback = null;
             foreach (var page in payload?.Query?.Pages ?? [])
             {
@@ -76,6 +91,7 @@ public sealed class CommercialRecipeImageClient(
 
                 if (LooksLikeDish(page.Title, dishName) && MapVerifiedImage(image) is { } verified)
                 {
+                    photoCache.Store(dishName, verified);
                     return verified;
                 }
 
@@ -87,7 +103,12 @@ public sealed class CommercialRecipeImageClient(
                 }
             }
 
+            photoCache.Store(dishName, unverifiedFallback);
             return unverifiedFallback;
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(exception, "Commercial-use image lookup timed out for {DishName}.", dishName);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -137,7 +158,11 @@ public sealed class CommercialRecipeImageClient(
             sourceUrl,
             licenseType,
             licenseUrl,
-            attribution);
+            attribution,
+            Provider: "Wikimedia Commons",
+            Creator: creator,
+            CommercialUseAllowed: true,
+            AttributionRequired: requiresAttribution);
     }
 
     private static CommercialRecipeImage? MapUnverifiedTestImage(CommonsImageInfo image)
@@ -156,7 +181,10 @@ public sealed class CommercialRecipeImageClient(
             "Unverified test image",
             null,
             "Testing only — image rights were not verified. Do not use this image in a public or commercial release.",
-            IsVerified: false);
+            IsVerified: false,
+            Provider: "Wikimedia Commons",
+            CommercialUseAllowed: false,
+            AttributionRequired: false);
     }
 
     private static string BuildCreativeCommonsAttribution(string creator, string licenseType)
@@ -295,6 +323,35 @@ public sealed class CommercialRecipeImageClient(
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
 
+    private static async Task<byte[]?> ReadBoundedAsync(
+        HttpContent content,
+        int maxBytes,
+        CancellationToken cancellationToken)
+    {
+        if (content.Headers.ContentLength is > 0 && content.Headers.ContentLength > maxBytes)
+        {
+            return null;
+        }
+
+        await using var input = await content.ReadAsStreamAsync(cancellationToken);
+        using var output = new MemoryStream(Math.Min(maxBytes, 64 * 1024));
+        var buffer = new byte[16 * 1024];
+        while (true)
+        {
+            var read = await input.ReadAsync(buffer, cancellationToken);
+            if (read == 0)
+            {
+                return output.ToArray();
+            }
+            if (output.Length + read > maxBytes)
+            {
+                return null;
+            }
+
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+    }
+
     private sealed class CommonsResponse
     {
         [JsonPropertyName("query")]
@@ -350,4 +407,8 @@ public sealed record CommercialRecipeImage(
     string LicenseType,
     string? LicenseUrl,
     string AttributionRequirements,
-    bool IsVerified = true);
+    bool IsVerified = true,
+    string Provider = "Wikimedia Commons",
+    string? Creator = null,
+    bool CommercialUseAllowed = true,
+    bool AttributionRequired = false);

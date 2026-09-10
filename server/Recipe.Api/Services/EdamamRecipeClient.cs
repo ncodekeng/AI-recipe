@@ -12,7 +12,8 @@ namespace Recipe.Api.Services;
 
 public sealed class EdamamRecipeClient(
     HttpClient httpClient,
-    IOptions<RecipeCatalogOptions> options)
+    IOptions<RecipeCatalogOptions> options,
+    IngredientNormalizer normalizer)
 {
     private static readonly IReadOnlyDictionary<string, string> AllergenHealthLabels =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -79,11 +80,10 @@ public sealed class EdamamRecipeClient(
 
     private string BuildQuery(GenerateRecipesRequest request)
     {
-        var ingredientQuery = string.Join(", ", request.Ingredients
-            .Where(item => !string.IsNullOrWhiteSpace(item.Name))
-            .Select(item => item.Name.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(6));
+        var ingredientQuery = string.Join(", ", normalizer.SelectRecipeSearchFocus(
+            request.Ingredients,
+            maxCount: 6,
+            mainIngredient: request.MainIngredient));
         if (ingredientQuery.Length > 100)
         {
             ingredientQuery = ingredientQuery[..100];
@@ -150,14 +150,15 @@ public sealed class EdamamRecipeClient(
         return labels;
     }
 
-    private static RecipeSuggestion? MapRecipe(
+    private RecipeSuggestion? MapRecipe(
         EdamamRecipe recipe,
         GenerateRecipesRequest request)
     {
         if (string.IsNullOrWhiteSpace(recipe.Label) ||
             string.IsNullOrWhiteSpace(recipe.Url) ||
             !Uri.TryCreate(recipe.Url, UriKind.Absolute, out var sourceUri) ||
-            sourceUri.Scheme != Uri.UriSchemeHttps)
+            sourceUri.Scheme != Uri.UriSchemeHttps ||
+            (request.MaxCookingMinutes > 0 && recipe.TotalTime > request.MaxCookingMinutes))
         {
             return null;
         }
@@ -176,6 +177,11 @@ public sealed class EdamamRecipeClient(
                 .Where(line => !string.IsNullOrWhiteSpace(line))
                 .Select(line => new RecipeIngredient(string.Empty, line.Trim()))
                 .ToList();
+        }
+        if (!string.IsNullOrWhiteSpace(request.MainIngredient) &&
+            !ingredients.Any(item => normalizer.Matches(request.MainIngredient, item.Name)))
+        {
+            return null;
         }
 
         var tags = recipe.DietLabels
@@ -212,7 +218,21 @@ public sealed class EdamamRecipeClient(
             null,
             DirectionsKind: recipe.InstructionLines.Any(step => !string.IsNullOrWhiteSpace(step))
                 ? RecipeDirectionsKinds.Provider
-                : RecipeDirectionsKinds.Unavailable);
+                : RecipeDirectionsKinds.Unavailable,
+            CaloriesPerServing: GetCaloriesPerServing(recipe),
+            SourceVerified: true,
+            SourceTitle: recipe.Label.Trim());
+    }
+
+    private static int? GetCaloriesPerServing(EdamamRecipe recipe)
+    {
+        if (recipe.Calories <= 0 || recipe.Yield <= 0)
+        {
+            return null;
+        }
+
+        var calories = (int)Math.Round(recipe.Calories / recipe.Yield);
+        return calories is >= 1 and <= 5_000 ? calories : null;
     }
 
     private static string FormatAmount(double quantity, string? measure, string? originalText = null)
@@ -274,6 +294,9 @@ public sealed class EdamamRecipeClient(
 
         [JsonPropertyName("totalTime")]
         public double TotalTime { get; init; }
+
+        [JsonPropertyName("calories")]
+        public double Calories { get; init; }
 
         [JsonPropertyName("ingredientLines")]
         public List<string> IngredientLines { get; init; } = [];

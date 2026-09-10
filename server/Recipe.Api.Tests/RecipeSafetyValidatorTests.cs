@@ -39,6 +39,19 @@ public sealed class RecipeSafetyValidatorTests
         Assert.Single(result.Recipes);
     }
 
+    [Fact]
+    public void Validator_rejects_a_source_that_was_not_provider_verified()
+    {
+        var recipe = Recipe("https://publisher.example.test/recipe") with { SourceVerified = false };
+        var response = new RecipeGenerationResponse([recipe], "Untrusted provider", string.Empty);
+
+        Assert.Throws<RecipeSafetyException>(() =>
+            new RecipeSafetyValidator().Validate(response, new GenerateRecipesRequest
+            {
+                Ingredients = [new IngredientInput("lamb", "500 g")]
+            }));
+    }
+
     private static RecipeSuggestion Recipe(string? sourceUrl) => new(
         Guid.NewGuid(),
         "Braised lamb",
@@ -53,5 +66,6 @@ public sealed class RecipeSafetyValidatorTests
         [],
         "coral",
         SourceName: "Publisher",
-        SourceUrl: sourceUrl);
+        SourceUrl: sourceUrl,
+        SourceVerified: true);
 }

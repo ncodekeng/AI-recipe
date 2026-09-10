@@ -153,6 +153,20 @@ public sealed class RecipeSearchCacheTests
         Assert.False(cache.TryGet(Request(["lamb"]), out _));
     }
 
+    [Fact]
+    public void Cache_does_not_cross_main_ingredient_or_result_count()
+    {
+        var cache = CreateCache(new RecipeCacheOptions
+        {
+            Enabled = true,
+            ProviderPermissionConfirmed = true
+        });
+        cache.Store(Request(["lamb", "potato"], mainIngredient: "lamb", maxRecipes: 5), Response());
+
+        Assert.False(cache.TryGet(Request(["lamb", "potato"], mainIngredient: "potato", maxRecipes: 5), out _));
+        Assert.False(cache.TryGet(Request(["lamb", "potato"], mainIngredient: "lamb", maxRecipes: 3), out _));
+    }
+
     private static RecipeSearchCache CreateCache(
         RecipeCacheOptions cacheOptions,
         string provider = "AzureWebSearch",
@@ -174,14 +188,18 @@ public sealed class RecipeSearchCacheTests
 
     private static GenerateRecipesRequest Request(
         string[] ingredients,
-        string[]? allergens = null) => new()
+        string[]? allergens = null,
+        string mainIngredient = "",
+        int maxRecipes = 5) => new()
         {
             Ingredients = ingredients.Select(name => new IngredientInput(name, "as needed")).ToList(),
             Allergens = (allergens ?? []).ToList(),
             AvoidIngredients = ["celery"],
             DietaryPreference = "Halal-style",
+            MainIngredient = mainIngredient,
             MaxCookingMinutes = 90,
-            Servings = 4
+            Servings = 4,
+            MaxRecipes = maxRecipes
         };
 
     private static RecipeGenerationResponse Response() => new(

@@ -187,3 +187,22 @@ test('mobile recipe mode CSS prevents horizontal control overflow', () => {
   assert.match(css, /\.recipe-scope-toggle\s*\{[^}]*max-width:\s*100%/s)
   assert.match(css, /@media \(max-width: 360px\)[\s\S]*?\.recipe-scope-toggle\s*\{[^}]*grid-template-columns:\s*1fr/s)
 })
+
+test('PLATE renders scan, review, and results as separate workflow screens', () => {
+  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+
+  assert.match(source, /appScreen === 'scan' && <div className="work-card screen-card">/)
+  assert.match(source, /appScreen === 'review' && ingredients\.length > 0/)
+  assert.match(source, /appScreen === 'results' && <>/)
+  assert.match(source, /function handleWorkflowStepChange/)
+})
+
+test('step-by-step cooking mode supports swipe and preserves directions provenance', () => {
+  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+
+  assert.match(source, /function CookingMode/)
+  assert.match(source, /onTouchStart=\{handleTouchStart\}/)
+  assert.match(source, /onTouchEnd=\{handleTouchEnd\}/)
+  assert.match(source, /recipe\.directionsKind === 'AiGenerated'/)
+  assert.match(source, /Check original live recipe/)
+})

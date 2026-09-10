@@ -98,7 +98,7 @@ public sealed class RecipeSearchCache
             .ToArray();
         var cacheIdentity = JsonSerializer.Serialize(new
         {
-            Version = 10,
+            Version = 11,
             Provider = _provider,
             PromptRevision = _prompts.Current.Revision,
             Ingredients = ingredients,
@@ -106,8 +106,10 @@ public sealed class RecipeSearchCache
             AvoidIngredients = avoidIngredients,
             RecentlyShownRecipeIds = recentlyShownRecipeIds,
             DietaryPreference = request.DietaryPreference.Trim().ToLowerInvariant(),
+            MainIngredient = _normalizer.Normalize(request.MainIngredient),
             request.MaxCookingMinutes,
             request.Servings,
+            request.MaxRecipes,
             request.ShowPhotos,
             request.OnlyUseAvailableIngredients
         });
