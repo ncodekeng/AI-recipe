@@ -45,6 +45,23 @@ body.modal-open {
   overflow: hidden;
 }
 
+html.results-scrollbar-hidden,
+html.results-scrollbar-hidden body,
+html.results-scrollbar-hidden .modal-backdrop,
+.recipe-modal {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html.results-scrollbar-hidden::-webkit-scrollbar,
+html.results-scrollbar-hidden body::-webkit-scrollbar,
+html.results-scrollbar-hidden .modal-backdrop::-webkit-scrollbar,
+.recipe-modal::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 button,
 input,
 select,

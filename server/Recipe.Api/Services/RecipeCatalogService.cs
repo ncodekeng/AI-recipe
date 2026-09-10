@@ -7,6 +7,7 @@ namespace Recipe.Api.Services;
 public sealed class RecipeCatalogService(
     AzureGroundedRecipeClient azureWebSearch,
     EdamamRecipeClient edamam,
+    PublisherRecipePageClient publisherPages,
     CommercialRecipeImageClient commercialImages,
     RecipeSafetyValidator safetyValidator,
     RecipeRankingService ranking,
@@ -60,7 +61,11 @@ public sealed class RecipeCatalogService(
                 ? await azureWebSearch.FindRecipesAsync(request, cancellationToken)
                 : await edamam.FindRecipesAsync(request, cancellationToken);
             var safeResponse = safetyValidator.Validate(response, request);
-            var rankedResponse = RankAndLimit(safeResponse, request);
+            var enrichedResponse = useAzureWebSearch
+                ? await publisherPages.EnrichAsync(safeResponse, request, cancellationToken)
+                : safeResponse;
+            var verifiedResponse = safetyValidator.Validate(enrichedResponse, request);
+            var rankedResponse = RankAndLimit(verifiedResponse, request);
             cache.Store(request, rankedResponse);
             var result = await ApplyCommercialImagesAsync(
                 rankedResponse,
@@ -115,12 +120,18 @@ public sealed class RecipeCatalogService(
     {
         var tasks = response.Recipes.Select(async recipe =>
         {
-            if (!showPhotos || !commercialImages.IsEnabled)
+            if (!showPhotos)
             {
                 return ClearImage(recipe);
             }
 
-            var image = await commercialImages.FindAsync(recipe.Title, cancellationToken);
+            var searchedImage = commercialImages.IsEnabled
+                ? await commercialImages.FindAsync(recipe.Title, cancellationToken)
+                : null;
+            var publisherImage = publisherPages.CreateUnverifiedPublisherImageForTesting(recipe);
+            var image = searchedImage?.IsVerified == true
+                ? searchedImage
+                : publisherImage ?? searchedImage;
             return image is null
                 ? ClearImage(recipe)
                 : recipe with

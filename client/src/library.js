@@ -78,6 +78,7 @@ export function addRecentlyViewedRecipe(current, recipe) {
     sourceTitle: recipe.sourceTitle || recipe.title,
     sourceUrl: recipe.sourceUrl,
     sourceVerified: recipe.sourceVerified,
+    publisherPageVerified: recipe.publisherPageVerified === true,
     displayImageUrl: recipe.displayImageUrl,
     imageUrl: recipe.imageUrl,
     imageSourceUrl: recipe.imageSourceUrl,

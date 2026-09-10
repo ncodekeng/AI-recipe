@@ -50,3 +50,26 @@ test('explicit test-only status permits an unverified local test image', () => {
 
   assert.equal(hasValidRecipePhoto(testImage), true)
 })
+
+test('development permits an exact publisher image marked testing-only', () => {
+  const publisherImage = {
+    ...recipe,
+    sourceUrl: 'https://publisher.example.test/chicken-and-peppers',
+    publisherPageVerified: true,
+    imageUrl: 'https://cdn.publisher.example.test/chicken-and-peppers.jpg',
+    imageSourceUrl: 'https://publisher.example.test/chicken-and-peppers',
+    imageLicenseType: 'Unverified publisher image',
+    imageLicenseUrl: null,
+    imageAttributionRequirements: 'Testing only -- publisher image rights were not verified.',
+    imageRightsStatus: 'UnverifiedTestOnly',
+    imageProvider: 'Recipe publisher',
+    imageCreator: null,
+    imageCommercialUseAllowed: false,
+    imageAttributionRequired: false,
+    imageVerified: false,
+  }
+
+  assert.equal(hasValidRecipePhoto(publisherImage), true)
+  assert.equal(hasValidRecipePhoto({ ...publisherImage, imageUrl: 'https://127.0.0.1/food.jpg' }), false)
+  assert.equal(hasValidRecipePhoto({ ...publisherImage, publisherPageVerified: false }), false)
+})

@@ -9,6 +9,7 @@ namespace Recipe.Api.Controllers;
 public sealed class RecipesController(
     IRecipeCatalogService recipeCatalog,
     CommercialRecipeImageClient commercialImages,
+    PublisherRecipePageClient publisherPages,
     IngredientNormalizer ingredientNormalizer,
     AdminSessionService adminSessions,
     AiUsageGuard usageGuard) : ControllerBase
@@ -99,7 +100,11 @@ public sealed class RecipesController(
         if (request.Recipes.Count == 0 ||
             request.Recipes.Count > 6 ||
             request.Recipes.Any(item => item.Id == Guid.Empty ||
-                string.IsNullOrWhiteSpace(item.Title) || item.Title.Length > 160))
+                string.IsNullOrWhiteSpace(item.Title) || item.Title.Length > 160 ||
+                (!string.IsNullOrWhiteSpace(item.SourceUrl) &&
+                 (item.SourceUrl.Length > 2_048 ||
+                  !Uri.TryCreate(item.SourceUrl, UriKind.Absolute, out var sourceUri) ||
+                  !SafePublisherHttpMessageHandler.IsSafeHttpsUri(sourceUri)))))
         {
             return BadRequest(new ProblemDetails
             {
@@ -110,7 +115,18 @@ public sealed class RecipesController(
 
         var results = await Task.WhenAll(request.Recipes.Select(async recipe =>
         {
-            var image = await commercialImages.FindAsync(recipe.Title, cancellationToken);
+            var searchedImage = commercialImages.IsEnabled
+                ? await commercialImages.FindAsync(recipe.Title, cancellationToken)
+                : null;
+            var publisherImage = recipe.PublisherPageVerified
+                ? await publisherPages.FindUnverifiedPublisherImageForTestingAsync(
+                    recipe.SourceUrl,
+                    recipe.Title,
+                    cancellationToken)
+                : null;
+            var image = searchedImage?.IsVerified == true
+                ? searchedImage
+                : publisherImage ?? searchedImage;
             return image is null
                 ? new RecipePhotoLookupResult(
                     recipe.Id,

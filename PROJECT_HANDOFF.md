@@ -1,6 +1,6 @@
 # PLATE / AI Recipe Project Handoff
 
-Last updated: 2026-09-05
+Last updated: 2026-09-10
 
 This file is the portable context for continuing the project with a different Codex account. Read this file, `README.md`, and `git status` before changing anything. Do not discard existing uncommitted work.
 
@@ -33,6 +33,7 @@ Implementation milestones:
 - `76657bb Add sourced recipe provider`
 - `b5fee6c Improve guest kitchen flow`
 - `d9d93ba Add recipe library feedback`
+- `9626135 Improve sourced recipe pipeline`
 
 Before resuming:
 
@@ -189,12 +190,13 @@ The user must never go directly from uncertain image recognition to recipes with
 - Done locally: credential-free demo and high-detail per-photo Azure multimodal recognition with bounded parallel calls, deterministic cross-photo merging, partial-photo failure reporting, confidence, quantity, manual edit/add/remove, empty-result guidance, ignored-photo reporting, and experimental frozen-meal classification.
 - Done locally: structured allergens, custom avoid list, diet, servings, and maximum time.
 - Done locally: Azure web-grounded recipe search with citation enforcement, optional Edamam provider boundary, no invented fallback, deterministic safety validation, mandatory user-selected Main ingredient, 40/60 coverage-and-availability match scoring, missing ingredient UI, source links, and conditional Edamam attribution.
+- Done locally: bounded extraction of `schema.org/Recipe` JSON-LD or legacy Recipe microdata from exact Azure-cited publisher URLs, with redirect/private-network/size/concurrency controls, short independent caching, direct publisher metadata enrichment, and a second deterministic safety pass.
 - Done locally: persistent browser Kitchen Memory, sourced bookmarks, recent search/result history, basic repeat-result diversification, feedback API/UI, timeouts and failure states.
 - Done locally: private seven-day Azure scan-result caching; identical photos from the same browser skip Azure and do not consume another scan allowance while the single server process remains alive.
 - Done locally for a single instance: daily limits, one active request, estimated budget cutoff, kill switch, and usage display.
 - Done locally: clear prototype data-handling copy and browser-data deletion.
 - Still required for public MVP: Base44/auth decision, cross-device account persistence, shared durable quota/idempotency store, bot/gateway controls, actual cost telemetry, durable feedback/log sink, staging provider verification, and reviewed privacy/legal copy.
-- Still provider-dependent: canonical in-app instructions require licensed content. Production photography is shown only when Wikimedia Commons metadata passes the commercial-license allowlist; verified image/license metadata is cached independently for up to seven days, otherwise PLATE uses built-in artwork. The local Development profile can show an orange-labelled `UnverifiedTestOnly` image for visual testing, but the backend refuses that fallback outside Development. Azure can show a clearly labelled AI cooking guide, while the publisher link remains canonical.
+- Still provider-dependent: canonical in-app instructions require licensed content. Production photography is shown only when Wikimedia Commons metadata passes the commercial-license allowlist; verified image/license metadata is cached independently for up to seven days, otherwise PLATE uses built-in artwork. The local Development profile can prefer the exact publisher image declared by verified Recipe JSON-LD or microdata, or use a Commons fallback, only with an orange-labelled `UnverifiedTestOnly` warning; the backend refuses both fallbacks outside Development. Azure can show a clearly labelled AI cooking guide, while the publisher link remains canonical.
 
 ### P1 candidates
 
@@ -286,6 +288,7 @@ The local implementation now defaults to **Azure Responses API web search**:
 
 - Set `RecipeCatalog__Provider=AzureWebSearch`; it reuses the configured Azure OpenAI endpoint, key, and deployment.
 - Azure `web_search` is required on every recipe request, and a recipe is accepted only when its exact HTTPS source URL appears in Azure's actual returned sources/citations.
+- After citation acceptance, PLATE safely fetches only that exact page and uses Recipe JSON-LD or legacy Recipe microdata to verify/enrich publisher title, ingredients, times, servings, calories, and a testing-only publisher-image candidate. Extraction failure preserves the citation-verified Azure result.
 - The model structures source metadata and may add a rough wine pairing and a separately labelled AI cooking guide, but it is forbidden to invent recipes, URLs, ingredients, quantities, or claim that its guide is the publisher's method. The UI does not present an AI-written recipe summary. Halal-style results suppress wine pairing.
 - Full third-party cooking instructions are not copied; the user opens the original publisher.
 - Azure web search does not supply a dependable licensed image field, so its image URLs and license claims are never trusted. A separate Wikimedia Commons lookup accepts only matching CC0/Public Domain/CC BY/CC BY-SA bitmap files with complete required attribution metadata; any uncertainty produces a null image and built-in artwork.

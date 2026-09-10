@@ -4,6 +4,7 @@ import test from 'node:test'
 
 const app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
 const hero = readFileSync(new URL('./RecipeHeroImage.jsx', import.meta.url), 'utf8')
+const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
 
 test('review UI sends a selected main ingredient and a three-to-five result limit', () => {
   assert.match(app, /<label htmlFor="main-ingredient">Main ingredient<\/label>/)
@@ -33,4 +34,17 @@ test('required image attribution is displayed with source and license links', ()
   assert.match(app, /recipe\.imageAttributionRequirements/)
   assert.match(app, /href=\{recipe\.imageSourceUrl\}/)
   assert.match(app, /href=\{recipe\.imageLicenseUrl\}/)
+})
+
+test('verified publisher extraction is visible and reusable by photo refresh', () => {
+  assert.match(app, /Publisher recipe data verified/)
+  assert.match(app, /visibleRecipes\.map\(\(\{ id, title, sourceUrl, publisherPageVerified \}\)/)
+  assert.match(app, /publisherPageVerified,/)
+})
+
+test('results and recipe details hide scrollbars without disabling scrolling', () => {
+  assert.match(app, /classList\.toggle\('results-scrollbar-hidden', appScreen === 'results'\)/)
+  assert.match(css, /html\.results-scrollbar-hidden,[\s\S]*?scrollbar-width:\s*none;/)
+  assert.match(css, /\.recipe-modal::\-webkit-scrollbar[\s\S]*?display:\s*none;/)
+  assert.match(css, /\.recipe-modal\s*\{[\s\S]*?overflow-y:\s*auto;/)
 })

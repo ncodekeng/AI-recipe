@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Recipe.Api.Models;
 using Recipe.Api.Options;
@@ -98,12 +99,142 @@ public sealed class RecipeCatalogServiceTests
         Assert.Equal(1, imageHandler.CallCount);
     }
 
+    [Fact]
+    public async Task Azure_result_is_enriched_from_its_exact_cited_publisher_page()
+    {
+        const string sourceUrl = "https://publisher.example.test/chicken-potato";
+        var recipePayload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            recipes = new[]
+            {
+                new
+                {
+                    title = "Chicken Potato Traybake",
+                    cookingMinutes = 35,
+                    difficulty = "Easy",
+                    cuisine = "British",
+                    servings = 2,
+                    tags = new[] { "Dinner" },
+                    ingredients = new[]
+                    {
+                        new { amount = "2", name = "chicken", originalText = "2 chicken breasts" },
+                        new { amount = "500 g", name = "potato", originalText = "500 g potatoes" }
+                    },
+                    cookingGuideSteps = new[] { "Cook the listed ingredients and verify the chicken is safely cooked." },
+                    sourceUrl,
+                    winePairing = "A light Pinot Noir is a rough match."
+                }
+            }
+        });
+        var azurePayload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            output = new object[]
+            {
+                new
+                {
+                    type = "web_search_call",
+                    action = new { sources = new[] { new { type = "url", url = sourceUrl } } }
+                },
+                new
+                {
+                    type = "message",
+                    content = new[]
+                    {
+                        new
+                        {
+                            type = "output_text",
+                            text = recipePayload,
+                            annotations = new[] { new { type = "url_citation", url = sourceUrl } }
+                        }
+                    }
+                }
+            }
+        });
+        const string publisherHtml = """
+            <script type="application/ld+json">
+            {
+              "@type": "Recipe",
+              "name": "Chicken and Potato Traybake",
+              "image": "https://publisher.example.test/chicken-potato.jpg",
+              "prepTime": "PT10M",
+              "cookTime": "PT35M",
+              "totalTime": "PT45M",
+              "recipeYield": "3 servings",
+              "recipeIngredient": ["2 chicken breasts", "500 g potatoes", "1 onion"]
+            }
+            </script>
+            """;
+        var azureHandler = new JsonHandler(azurePayload);
+        var publisherHandler = new JsonHandler(publisherHtml, mediaType: "text/html");
+        var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions
+        {
+            Provider = "AzureWebSearch",
+            AzureWebSearch = new AzureWebSearchOptions
+            {
+                CandidateCount = 1,
+                MinimumResultCount = 1,
+                BatchSize = 1,
+                MaxSearchAttempts = 1
+            },
+            PublisherExtraction = new PublisherExtractionOptions { Enabled = true },
+            CommercialImages = new CommercialImageOptions
+            {
+                Enabled = false,
+                AllowUnverifiedForTesting = true,
+                AllowedProviders = []
+            }
+        });
+        var foodOptions = Microsoft.Extensions.Options.Options.Create(new FoodAiOptions
+        {
+            AzureOpenAI = new AzureOpenAiOptions
+            {
+                Endpoint = "https://azure.example.test",
+                ApiKey = "test-key",
+                Deployment = "test-deployment"
+            }
+        });
+        var service = CreateService(
+            options,
+            azureHandler,
+            imageHandler: null,
+            publisherHandler: publisherHandler,
+            foodAiOptions: foodOptions,
+            environment: new TestHostEnvironment("Development"));
+
+        var response = await service.FindRecipesAsync(new GenerateRecipesRequest
+        {
+            Ingredients = [new IngredientInput("chicken", "2"), new IngredientInput("potato", "500 g")],
+            MainIngredient = "chicken",
+            MaxRecipes = 3,
+            ShowPhotos = true
+        }, CancellationToken.None);
+
+        var recipe = Assert.Single(response.Recipes);
+        Assert.True(recipe.SourceVerified);
+        Assert.True(recipe.PublisherPageVerified);
+        Assert.Equal("Chicken and Potato Traybake", recipe.Title);
+        Assert.Equal(3, recipe.Ingredients.Count);
+        Assert.Equal(10, recipe.PrepMinutes);
+        Assert.Equal(35, recipe.CookMinutes);
+        Assert.Equal(45, recipe.CookingMinutes);
+        Assert.Equal(3, recipe.Servings);
+        Assert.Equal("https://publisher.example.test/chicken-potato.jpg", recipe.ImageUrl);
+        Assert.Equal("Recipe publisher", recipe.ImageProvider);
+        Assert.Equal(RecipeImageRightsStatuses.UnverifiedTestOnly, recipe.ImageRightsStatus);
+        Assert.Equal(1, azureHandler.CallCount);
+        Assert.Equal(1, publisherHandler.CallCount);
+    }
+
     private static RecipeCatalogService CreateService(
         Microsoft.Extensions.Options.IOptions<RecipeCatalogOptions> options,
         HttpMessageHandler? recipeHandler = null,
-        HttpMessageHandler? imageHandler = null)
+        HttpMessageHandler? imageHandler = null,
+        HttpMessageHandler? publisherHandler = null,
+        Microsoft.Extensions.Options.IOptions<FoodAiOptions>? foodAiOptions = null,
+        IHostEnvironment? environment = null)
     {
-        var foodAiOptions = Microsoft.Extensions.Options.Options.Create(new FoodAiOptions());
+        foodAiOptions ??= Microsoft.Extensions.Options.Options.Create(new FoodAiOptions());
+        environment ??= new TestHostEnvironment();
         var normalizer = new IngredientNormalizer();
         var prompts = new TestPromptProvider();
         var cache = new RecipeSearchCache(
@@ -124,7 +255,7 @@ public sealed class RecipeCatalogServiceTests
             NullLogger<RecipePhotoCache>.Instance);
         return new RecipeCatalogService(
             new AzureGroundedRecipeClient(
-                new HttpClient(),
+                recipeHandler is null ? new HttpClient() : new HttpClient(recipeHandler),
                 foodAiOptions,
                 options,
                 prompts,
@@ -132,12 +263,21 @@ public sealed class RecipeCatalogServiceTests
                 new RecipeRankingService(normalizer),
                 NullLogger<AzureGroundedRecipeClient>.Instance),
             new EdamamRecipeClient(recipeHttpClient, options, normalizer),
+            new PublisherRecipePageClient(
+                publisherHandler is null
+                    ? new HttpClient(new JsonHandler("Not found", HttpStatusCode.NotFound))
+                    : new HttpClient(publisherHandler),
+                imageMemoryCache,
+                options,
+                environment,
+                normalizer,
+                NullLogger<PublisherRecipePageClient>.Instance),
             new CommercialRecipeImageClient(
                 imageHandler is null
                     ? new HttpClient { BaseAddress = new Uri("https://commons.wikimedia.org/") }
                     : new HttpClient(imageHandler) { BaseAddress = new Uri("https://commons.wikimedia.org/") },
                 options,
-                new TestHostEnvironment(),
+                environment,
                 photoCache,
                 NullLogger<CommercialRecipeImageClient>.Instance),
             new RecipeSafetyValidator(),
@@ -147,7 +287,10 @@ public sealed class RecipeCatalogServiceTests
             NullLogger<RecipeCatalogService>.Instance);
     }
 
-    private sealed class JsonHandler(string payload) : HttpMessageHandler
+    private sealed class JsonHandler(
+        string payload,
+        HttpStatusCode statusCode = HttpStatusCode.OK,
+        string mediaType = "application/json") : HttpMessageHandler
     {
         public int CallCount { get; private set; }
 
@@ -156,9 +299,9 @@ public sealed class RecipeCatalogServiceTests
             CancellationToken cancellationToken)
         {
             CallCount++;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return Task.FromResult(new HttpResponseMessage(statusCode)
             {
-                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+                Content = new StringContent(payload, Encoding.UTF8, mediaType)
             });
         }
     }

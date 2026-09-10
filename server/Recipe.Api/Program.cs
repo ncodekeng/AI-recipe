@@ -13,8 +13,12 @@ builder.Services.Configure<PromptAdminOptions>(builder.Configuration.GetSection(
 var recipeCacheMaxEntries = builder.Configuration.GetValue<int?>("RecipeCatalog:Cache:MaxEntries") ?? 500;
 var scanCacheMaxEntries = builder.Configuration.GetValue<int?>("FoodAi:ScanCache:MaxEntries") ?? 500;
 var photoCacheMaxEntries = builder.Configuration.GetValue<int?>("RecipeCatalog:CommercialImages:CacheMaxEntries") ?? 500;
+var publisherCacheMaxEntries = builder.Configuration.GetValue<int?>("RecipeCatalog:PublisherExtraction:CacheMaxEntries") ?? 500;
 builder.Services.AddMemoryCache(options =>
-    options.SizeLimit = Math.Clamp(recipeCacheMaxEntries + scanCacheMaxEntries + photoCacheMaxEntries, 20, 10000));
+    options.SizeLimit = Math.Clamp(
+        recipeCacheMaxEntries + scanCacheMaxEntries + photoCacheMaxEntries + publisherCacheMaxEntries,
+        20,
+        10000));
 builder.Services.AddSingleton<DemoFoodAiService>();
 builder.Services.AddSingleton<RecipeSafetyValidator>();
 builder.Services.AddSingleton<IngredientNormalizer>();
@@ -43,6 +47,11 @@ builder.Services.AddHttpClient<AzureGroundedRecipeClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
 });
+builder.Services.AddHttpClient<PublisherRecipePageClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("PLATE/1.0 (publisher recipe metadata verification)");
+}).ConfigurePrimaryHttpMessageHandler(SafePublisherHttpMessageHandler.Create);
 builder.Services.AddHttpClient<CommercialRecipeImageClient>(client =>
 {
     client.BaseAddress = new Uri("https://commons.wikimedia.org/");

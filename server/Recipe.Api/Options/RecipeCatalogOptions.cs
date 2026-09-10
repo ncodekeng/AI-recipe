@@ -7,8 +7,19 @@ public sealed class RecipeCatalogOptions
     public string Provider { get; init; } = "AzureWebSearch";
     public AzureWebSearchOptions AzureWebSearch { get; init; } = new();
     public EdamamOptions Edamam { get; init; } = new();
+    public PublisherExtractionOptions PublisherExtraction { get; init; } = new();
     public CommercialImageOptions CommercialImages { get; init; } = new();
     public RecipeCacheOptions Cache { get; init; } = new();
+}
+
+public sealed class PublisherExtractionOptions
+{
+    public bool Enabled { get; init; } = true;
+    public int MaxResponseBytes { get; init; } = 2 * 1024 * 1024;
+    public int MaxConcurrentRequests { get; init; } = 3;
+    public bool CacheEnabled { get; init; }
+    public int CacheDurationHours { get; init; } = 24;
+    public int CacheMaxEntries { get; init; } = 500;
 }
 
 public sealed class AzureWebSearchOptions

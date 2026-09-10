@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace Recipe.Api.Models;
 
@@ -76,7 +77,9 @@ public sealed record RecipeSuggestion(
     bool ImageVerified = false,
     string? SourceTitle = null,
     int? PrepMinutes = null,
-    int? CookMinutes = null);
+    int? CookMinutes = null,
+    bool PublisherPageVerified = false,
+    [property: JsonIgnore] string? PublisherImageCandidateUrl = null);
 
 public static class RecipeDirectionsKinds
 {
@@ -105,7 +108,11 @@ public sealed class RecipePhotoLookupRequest
     public List<RecipePhotoCandidate> Recipes { get; init; } = [];
 }
 
-public sealed record RecipePhotoCandidate(Guid Id, string Title);
+public sealed record RecipePhotoCandidate(
+    Guid Id,
+    string Title,
+    string? SourceUrl = null,
+    bool PublisherPageVerified = false);
 
 public sealed record RecipePhotoLookupResult(
     Guid Id,

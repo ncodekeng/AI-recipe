@@ -804,7 +804,7 @@ function RecipeCard({ recipe, onOpen, onSave, saved, showRecipePhotos, isTopPick
         </button>
         {recipe.sourceVerified && recipe.sourceUrl && (
           <a className="recipe-source" href={recipe.sourceUrl} target="_blank" rel="noreferrer">
-            <span><small>Verified publisher source</small><strong>{recipe.sourceTitle || recipe.sourceName || 'View detailed recipe'}</strong></span>
+            <span><small>{recipe.publisherPageVerified ? 'Publisher recipe data verified' : 'Verified publisher source'}</small><strong>{recipe.sourceTitle || recipe.sourceName || 'View detailed recipe'}</strong></span>
             <Icon name="external" size={16} />
           </a>
         )}
@@ -1150,6 +1150,12 @@ export default function App() {
   }, [hasCompletedSearch, ingredients.length])
 
   useEffect(() => {
+    const root = document.documentElement
+    root.classList.toggle('results-scrollbar-hidden', appScreen === 'results')
+    return () => root.classList.remove('results-scrollbar-hidden')
+  }, [appScreen])
+
+  useEffect(() => {
     savePreferences({ allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, mainIngredient, maxRecipes, showRecipePhotos })
   }, [allergens, dietaryPreference, avoidText, maxCookingMinutes, servings, mainIngredient, maxRecipes, showRecipePhotos])
 
@@ -1427,7 +1433,12 @@ export default function App() {
     setNotice('Finding verified recipe photos…')
     try {
       const photoResults = await findRecipePhotos(
-        visibleRecipes.map(({ id, title }) => ({ id, title })),
+        visibleRecipes.map(({ id, title, sourceUrl, publisherPageVerified }) => ({
+          id,
+          title,
+          sourceUrl,
+          publisherPageVerified,
+        })),
       )
       const photosById = new Map(photoResults.map((photo) => [photo.id, photo]))
       const applyPhotos = (currentRecipes) => currentRecipes.map((recipe) => ({
@@ -1440,9 +1451,13 @@ export default function App() {
         recipes: applyPhotos(availableOnlyRecipes),
       })
       setSelectedRecipe((current) => current ? applyPhotos([current])[0] : current)
-      const foundCount = photoResults.filter((photo) => photo.imageUrl).length
+      const foundPhotos = photoResults.filter((photo) => photo.imageUrl)
+      const foundCount = foundPhotos.length
+      const includesTestOnly = foundPhotos.some((photo) => photo.imageRightsStatus === 'UnverifiedTestOnly')
       setNotice(foundCount > 0
-        ? `Found ${foundCount} verified recipe photo${foundCount === 1 ? '' : 's'}.`
+        ? includesTestOnly
+          ? `Found ${foundCount} recipe photo${foundCount === 1 ? '' : 's'}; unverified publisher photos are testing-only.`
+          : `Found ${foundCount} verified recipe photo${foundCount === 1 ? '' : 's'}.`
         : 'No matching commercially reusable photos were verified, so the safe artwork remains visible.')
     } catch (requestError) {
       setError(requestError.message)
