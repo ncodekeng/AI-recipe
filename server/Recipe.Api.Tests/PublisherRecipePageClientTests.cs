@@ -214,6 +214,28 @@ public sealed class PublisherRecipePageClientTests
         Assert.Null(client.CreateUnverifiedPublisherImageForTesting(recipe));
     }
 
+    [Fact]
+    public void Prototype_mode_returns_a_real_publisher_image_with_unverified_rights()
+    {
+        var client = CreateClient(
+            new PageHandler("<html></html>"),
+            "Production",
+            allowPrototypeImages: true);
+        var recipe = Recipe("Chicken Potato Traybake") with
+        {
+            PublisherPageVerified = true,
+            PublisherImageCandidateUrl = "https://publisher.example.test/food.jpg"
+        };
+
+        var image = client.CreateUnverifiedPublisherImageForPrototype(recipe);
+
+        Assert.NotNull(image);
+        Assert.Equal("https://publisher.example.test/food.jpg", image.ImageUrl);
+        Assert.Equal("Recipe publisher", image.Provider);
+        Assert.False(image.IsVerified);
+        Assert.False(image.CommercialUseAllowed);
+    }
+
     [Theory]
     [InlineData("8.8.8.8", true)]
     [InlineData("127.0.0.1", false)]
@@ -233,7 +255,8 @@ public sealed class PublisherRecipePageClientTests
     private static PublisherRecipePageClient CreateClient(
         HttpMessageHandler handler,
         string environment = "Production",
-        bool allowTestImages = false)
+        bool allowTestImages = false,
+        bool allowPrototypeImages = false)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions
         {
@@ -251,7 +274,8 @@ public sealed class PublisherRecipePageClientTests
             },
             CommercialImages = new CommercialImageOptions
             {
-                AllowUnverifiedForTesting = allowTestImages
+                AllowUnverifiedForTesting = allowTestImages,
+                AllowUnverifiedPublisherImagesForPrototype = allowPrototypeImages
             }
         });
         return new PublisherRecipePageClient(

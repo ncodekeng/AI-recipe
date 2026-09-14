@@ -225,6 +225,117 @@ public sealed class RecipeCatalogServiceTests
         Assert.Equal(1, publisherHandler.CallCount);
     }
 
+    [Fact]
+    public async Task Halal_search_excludes_pork_and_uses_the_remaining_ingredients()
+    {
+        const string sourceUrl = "https://publisher.example.test/chicken-potato";
+        var recipePayload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            recipes = new[]
+            {
+                new
+                {
+                    title = "Chicken and Potato Traybake",
+                    cookingMinutes = 40,
+                    difficulty = "Easy",
+                    cuisine = "British",
+                    servings = 2,
+                    tags = new[] { "Dinner" },
+                    ingredients = new[]
+                    {
+                        new { amount = "2", name = "chicken", originalText = "2 chicken breasts" },
+                        new { amount = "500 g", name = "potato", originalText = "500 g potatoes" }
+                    },
+                    cookingGuideSteps = new[] { "Bake the chicken and potatoes until the chicken is safely cooked." },
+                    sourceUrl,
+                    winePairing = string.Empty
+                }
+            }
+        });
+        var azurePayload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            output = new object[]
+            {
+                new
+                {
+                    type = "web_search_call",
+                    action = new { sources = new[] { new { type = "url", url = sourceUrl } } }
+                },
+                new
+                {
+                    type = "message",
+                    content = new[]
+                    {
+                        new
+                        {
+                            type = "output_text",
+                            text = recipePayload,
+                            annotations = new[] { new { type = "url_citation", url = sourceUrl } }
+                        }
+                    }
+                }
+            }
+        });
+        var azureHandler = new JsonHandler(azurePayload);
+        var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions
+        {
+            Provider = "AzureWebSearch",
+            AzureWebSearch = new AzureWebSearchOptions
+            {
+                CandidateCount = 1,
+                MinimumResultCount = 1,
+                BatchSize = 1,
+                MaxSearchAttempts = 1
+            },
+            PublisherExtraction = new PublisherExtractionOptions { Enabled = false },
+            CommercialImages = new CommercialImageOptions { Enabled = false }
+        });
+        var foodOptions = Microsoft.Extensions.Options.Options.Create(new FoodAiOptions
+        {
+            AzureOpenAI = new AzureOpenAiOptions
+            {
+                Endpoint = "https://azure.example.test",
+                ApiKey = "test-key",
+                Deployment = "test-deployment"
+            }
+        });
+        var service = CreateService(
+            options,
+            azureHandler,
+            foodAiOptions: foodOptions);
+
+        var response = await service.FindRecipesAsync(new GenerateRecipesRequest
+        {
+            Ingredients =
+            [
+                new IngredientInput("pork", "500 g"),
+                new IngredientInput("chicken", "2 breasts"),
+                new IngredientInput("potato", "500 g")
+            ],
+            DietaryPreference = "Halal-style",
+            MainIngredient = "pork",
+            MaxRecipes = 3,
+            ShowPhotos = false
+        }, CancellationToken.None);
+
+        Assert.Single(response.Recipes);
+        Assert.Contains("Ignored 1 Kitchen Memory item", response.Notice);
+        Assert.Contains("pork", response.Notice, StringComparison.OrdinalIgnoreCase);
+        using var requestDocument = System.Text.Json.JsonDocument.Parse(azureHandler.RequestBody!);
+        using var inputDocument = System.Text.Json.JsonDocument.Parse(
+            requestDocument.RootElement.GetProperty("input").GetString()!);
+        var input = inputDocument.RootElement;
+        Assert.Equal(string.Empty, input.GetProperty("mainIngredient").GetString());
+        var ingredientNames = input
+            .GetProperty("ingredients")
+            .EnumerateArray()
+            .Select(item => item.GetProperty("name").GetString())
+            .ToList();
+        Assert.DoesNotContain("pork", ingredientNames);
+        Assert.Contains("chicken", ingredientNames);
+        Assert.Contains("potato", ingredientNames);
+    }
+
     private static RecipeCatalogService CreateService(
         Microsoft.Extensions.Options.IOptions<RecipeCatalogOptions> options,
         HttpMessageHandler? recipeHandler = null,
@@ -282,6 +393,7 @@ public sealed class RecipeCatalogServiceTests
                 NullLogger<CommercialRecipeImageClient>.Instance),
             new RecipeSafetyValidator(),
             new RecipeRankingService(normalizer),
+            normalizer,
             cache,
             options,
             NullLogger<RecipeCatalogService>.Instance);
@@ -293,16 +405,20 @@ public sealed class RecipeCatalogServiceTests
         string mediaType = "application/json") : HttpMessageHandler
     {
         public int CallCount { get; private set; }
+        public string? RequestBody { get; private set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             CallCount++;
-            return Task.FromResult(new HttpResponseMessage(statusCode)
+            RequestBody = request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(statusCode)
             {
                 Content = new StringContent(payload, Encoding.UTF8, mediaType)
-            });
+            };
         }
     }
 }

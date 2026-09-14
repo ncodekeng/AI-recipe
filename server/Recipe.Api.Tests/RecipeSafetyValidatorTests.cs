@@ -52,6 +52,24 @@ public sealed class RecipeSafetyValidatorTests
             }));
     }
 
+    [Fact]
+    public void Validator_rejects_pork_for_halal_style_requests()
+    {
+        var porkRecipe = Recipe("https://publisher.example.test/pork") with
+        {
+            Title = "Roast pork",
+            Ingredients = [new RecipeIngredient("500 g", "pork")]
+        };
+        var response = new RecipeGenerationResponse([porkRecipe], "Azure Web Search", string.Empty);
+
+        Assert.Throws<RecipeSafetyException>(() =>
+            new RecipeSafetyValidator().Validate(response, new GenerateRecipesRequest
+            {
+                Ingredients = [new IngredientInput("pork", "500 g")],
+                DietaryPreference = "Halal-style"
+            }));
+    }
+
     private static RecipeSuggestion Recipe(string? sourceUrl) => new(
         Guid.NewGuid(),
         "Braised lamb",

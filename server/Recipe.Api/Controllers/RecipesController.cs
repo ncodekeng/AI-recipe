@@ -119,10 +119,14 @@ public sealed class RecipesController(
                 ? await commercialImages.FindAsync(recipe.Title, cancellationToken)
                 : null;
             var publisherImage = recipe.PublisherPageVerified
-                ? await publisherPages.FindUnverifiedPublisherImageForTestingAsync(
-                    recipe.SourceUrl,
-                    recipe.Title,
-                    cancellationToken)
+                ? await publisherPages.FindUnverifiedPublisherImageForPrototypeAsync(
+                      recipe.SourceUrl,
+                      recipe.Title,
+                      cancellationToken) ??
+                  await publisherPages.FindUnverifiedPublisherImageForTestingAsync(
+                      recipe.SourceUrl,
+                      recipe.Title,
+                      cancellationToken)
                 : null;
             var image = searchedImage?.IsVerified == true
                 ? searchedImage

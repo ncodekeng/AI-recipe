@@ -85,6 +85,7 @@ public sealed class PublisherRecipePageClient
     private readonly SemaphoreSlim _requestGate;
     private readonly bool _cacheEnabled;
     private readonly bool _allowUnverifiedPublisherImagesForTesting;
+    private readonly bool _allowUnverifiedPublisherImagesForPrototype;
 
     public PublisherRecipePageClient(
         HttpClient httpClient,
@@ -104,6 +105,8 @@ public sealed class PublisherRecipePageClient
         _allowUnverifiedPublisherImagesForTesting =
             environment.IsDevelopment() &&
             options.Value.CommercialImages.AllowUnverifiedForTesting;
+        _allowUnverifiedPublisherImagesForPrototype =
+            options.Value.CommercialImages.AllowUnverifiedPublisherImagesForPrototype;
 
         if (_options.CacheEnabled && !_cacheEnabled)
         {
@@ -157,9 +160,36 @@ public sealed class PublisherRecipePageClient
         return CreateUnverifiedPublisherImage(page?.ImageUrl, sourceUri);
     }
 
+    public async Task<CommercialRecipeImage?> FindUnverifiedPublisherImageForPrototypeAsync(
+        string? sourceUrl,
+        string dishName,
+        CancellationToken cancellationToken)
+    {
+        if (!_allowUnverifiedPublisherImagesForPrototype ||
+            !TryCreateSafeSourceUri(sourceUrl, out var sourceUri))
+        {
+            return null;
+        }
+
+        var page = await FindRecipeAsync(sourceUri, dishName, [], cancellationToken);
+        return CreateUnverifiedPublisherImage(page?.ImageUrl, sourceUri);
+    }
+
     public CommercialRecipeImage? CreateUnverifiedPublisherImageForTesting(RecipeSuggestion recipe)
     {
         if (!_allowUnverifiedPublisherImagesForTesting ||
+            !recipe.PublisherPageVerified ||
+            !TryCreateSafeSourceUri(recipe.SourceUrl, out var sourceUri))
+        {
+            return null;
+        }
+
+        return CreateUnverifiedPublisherImage(recipe.PublisherImageCandidateUrl, sourceUri);
+    }
+
+    public CommercialRecipeImage? CreateUnverifiedPublisherImageForPrototype(RecipeSuggestion recipe)
+    {
+        if (!_allowUnverifiedPublisherImagesForPrototype ||
             !recipe.PublisherPageVerified ||
             !TryCreateSafeSourceUri(recipe.SourceUrl, out var sourceUri))
         {

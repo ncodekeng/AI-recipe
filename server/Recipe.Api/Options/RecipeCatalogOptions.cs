@@ -47,6 +47,7 @@ public sealed class CommercialImageOptions
 {
     public bool Enabled { get; init; } = true;
     public bool AllowUnverifiedForTesting { get; init; }
+    public bool AllowUnverifiedPublisherImagesForPrototype { get; init; }
     public int MaxCandidates { get; init; } = 8;
     public int MaxResponseBytes { get; init; } = 2 * 1024 * 1024;
     public bool CacheEnabled { get; init; } = true;
