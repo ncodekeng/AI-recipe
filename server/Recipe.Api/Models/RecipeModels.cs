@@ -15,6 +15,12 @@ public sealed class GenerateRecipesRequest
     public List<Guid> RecentlyShownRecipeIds { get; init; } = [];
     public string DietaryPreference { get; init; } = "Anything";
 
+    [MaxLength(60)]
+    public string CuisinePreference { get; init; } = string.Empty;
+
+    [MaxLength(10)]
+    public List<string> RecipePreferences { get; init; } = [];
+
     [MaxLength(100)]
     public string MainIngredient { get; init; } = string.Empty;
 

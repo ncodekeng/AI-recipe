@@ -1,6 +1,6 @@
 # PLATE / Mise recipe prototype
 
-This repository is the independently built, mobile-first implementation reference for PLATE. The current interface is branded **Mise** until the transferred Base44 project and client brand assets can be inspected. It turns kitchen photos into an editable ingredient list, applies dietary restrictions, and finds sourced online recipes through a reusable ASP.NET Core API.
+This repository contains PLATE's reusable ASP.NET Core API and the independently built mobile reference client. The client-owned Base44 project has now been inspected separately: its interface can call this API for kitchen-photo recognition and sourced recipe search while retaining Base44 navigation, authentication, saved data, and guided cooking.
 
 ## What works now
 
@@ -41,6 +41,16 @@ React mobile web client
 ```
 
 The API owns validation and provider orchestration, allowing a future Base44, iOS, or Android client to reuse the same business rules. This is one web app and API, so it has no Dapr dependency or sidecar.
+
+### Base44 client origin
+
+When the Base44 frontend calls this Azure-hosted API, allow only its exact HTTPS origin in App Service configuration:
+
+```text
+Cors__AllowedOrigins__0=https://YOUR-BASE44-APP.base44.app
+```
+
+Set `VITE_PLATE_API_BASE_URL` in the Base44 client build to the Azure App Service origin. Do not put Azure OpenAI credentials in Base44 or any browser-visible environment variable.
 
 ## Codex workflow skills
 

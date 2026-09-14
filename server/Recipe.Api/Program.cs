@@ -2,6 +2,17 @@ using Recipe.Api.Options;
 using Recipe.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+var configuredClientOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? [];
+var allowedClientOrigins = configuredClientOrigins
+    .Concat(builder.Environment.IsDevelopment()
+        ? ["http://localhost:5173", "https://localhost:5173"]
+        : Array.Empty<string>())
+    .Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
+        (uri.Scheme == Uri.UriSchemeHttps || builder.Environment.IsDevelopment()))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
@@ -66,20 +77,24 @@ builder.Services.AddScoped<IRecipeCatalogService, RecipeCatalogService>();
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("DevelopmentClient", policy =>
+    options.AddPolicy("PlateClient", policy =>
     {
-        policy.WithOrigins("http://localhost:5173", "https://localhost:5173")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
+        if (allowedClientOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedClientOrigins)
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        }
     });
 });
 
 var app = builder.Build();
 
 app.UseExceptionHandler();
-if (app.Environment.IsDevelopment())
+if (allowedClientOrigins.Length > 0)
 {
-    app.UseCors("DevelopmentClient");
+    app.UseCors("PlateClient");
 }
 
 app.MapControllers();

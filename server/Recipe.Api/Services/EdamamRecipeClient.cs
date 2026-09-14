@@ -84,6 +84,10 @@ public sealed class EdamamRecipeClient(
             request.Ingredients,
             maxCount: 6,
             mainIngredient: request.MainIngredient));
+        if (!string.IsNullOrWhiteSpace(request.CuisinePreference))
+        {
+            ingredientQuery = $"{request.CuisinePreference.Trim()} {ingredientQuery}";
+        }
         if (ingredientQuery.Length > 100)
         {
             ingredientQuery = ingredientQuery[..100];

@@ -167,6 +167,58 @@ public sealed class RecipeSearchCacheTests
         Assert.False(cache.TryGet(Request(["lamb", "potato"], mainIngredient: "lamb", maxRecipes: 3), out _));
     }
 
+    [Fact]
+    public void Cache_does_not_cross_cuisine_or_recipe_preferences()
+    {
+        var cache = CreateCache(new RecipeCacheOptions
+        {
+            Enabled = true,
+            ProviderPermissionConfirmed = true
+        });
+        var original = Request(["lamb"]);
+        original = new GenerateRecipesRequest
+        {
+            Ingredients = original.Ingredients,
+            Allergens = original.Allergens,
+            AvoidIngredients = original.AvoidIngredients,
+            DietaryPreference = original.DietaryPreference,
+            CuisinePreference = "Italian",
+            RecipePreferences = ["High Protein"],
+            MaxCookingMinutes = original.MaxCookingMinutes,
+            Servings = original.Servings,
+            MaxRecipes = original.MaxRecipes
+        };
+        cache.Store(original, Response());
+
+        var differentCuisine = new GenerateRecipesRequest
+        {
+            Ingredients = original.Ingredients,
+            Allergens = original.Allergens,
+            AvoidIngredients = original.AvoidIngredients,
+            DietaryPreference = original.DietaryPreference,
+            CuisinePreference = "French",
+            RecipePreferences = original.RecipePreferences,
+            MaxCookingMinutes = original.MaxCookingMinutes,
+            Servings = original.Servings,
+            MaxRecipes = original.MaxRecipes
+        };
+        var differentPreference = new GenerateRecipesRequest
+        {
+            Ingredients = original.Ingredients,
+            Allergens = original.Allergens,
+            AvoidIngredients = original.AvoidIngredients,
+            DietaryPreference = original.DietaryPreference,
+            CuisinePreference = original.CuisinePreference,
+            RecipePreferences = ["Budget Friendly"],
+            MaxCookingMinutes = original.MaxCookingMinutes,
+            Servings = original.Servings,
+            MaxRecipes = original.MaxRecipes
+        };
+
+        Assert.False(cache.TryGet(differentCuisine, out _));
+        Assert.False(cache.TryGet(differentPreference, out _));
+    }
+
     private static RecipeSearchCache CreateCache(
         RecipeCacheOptions cacheOptions,
         string provider = "AzureWebSearch",

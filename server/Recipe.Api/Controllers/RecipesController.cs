@@ -32,8 +32,10 @@ public sealed class RecipesController(
             request.Ingredients.Any(item => item.Name.Length > 100 || item.Quantity.Length > 80) ||
             request.Allergens.Count > 20 ||
             request.AvoidIngredients.Count > 20 ||
+            request.RecipePreferences.Count > 10 ||
             request.RecentlyShownRecipeIds.Count > 30 ||
-            request.AvoidIngredients.Any(item => item.Length > 100))
+            request.AvoidIngredients.Any(item => item.Length > 100) ||
+            request.RecipePreferences.Any(item => item.Length > 60))
         {
             return BadRequest(new ProblemDetails
             {

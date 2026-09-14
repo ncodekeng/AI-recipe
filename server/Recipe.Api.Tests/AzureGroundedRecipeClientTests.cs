@@ -79,6 +79,27 @@ public sealed class AzureGroundedRecipeClientTests
     }
 
     [Fact]
+    public async Task Sends_client_cuisine_and_recipe_preferences_as_guidance()
+    {
+        const string sourceUrl = "https://publisher.example.test/italian-lamb";
+        var handler = new CapturingHandler(Response(sourceUrl, sourceUrl, "Chianti"));
+        var client = CreateClient(handler);
+
+        await client.FindRecipesAsync(
+            Request(cuisinePreference: "Italian", recipePreferences: ["High Protein", "Family Meal"]),
+            CancellationToken.None);
+
+        using var requestDocument = JsonDocument.Parse(handler.RequestBody);
+        using var inputDocument = JsonDocument.Parse(requestDocument.RootElement.GetProperty("input").GetString()!);
+        Assert.Equal("Italian", inputDocument.RootElement.GetProperty("cuisinePreference").GetString());
+        Assert.Equal(
+            ["High Protein", "Family Meal"],
+            inputDocument.RootElement.GetProperty("recipePreferences")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+    }
+
+    [Fact]
     public async Task Rejects_a_recipe_url_not_returned_by_web_search()
     {
         var handler = new CapturingHandler(Response(
@@ -500,13 +521,17 @@ public sealed class AzureGroundedRecipeClientTests
         string diet = "Anything",
         int maxCookingMinutes = 90,
         bool onlyUseAvailableIngredients = false,
-        string mainIngredient = "") => new()
+        string mainIngredient = "",
+        string cuisinePreference = "",
+        List<string>? recipePreferences = null) => new()
     {
         Ingredients = [new IngredientInput("lamb", "500 g")],
         DietaryPreference = diet,
         MaxCookingMinutes = maxCookingMinutes,
         Servings = 2,
         MainIngredient = mainIngredient,
+        CuisinePreference = cuisinePreference,
+        RecipePreferences = recipePreferences ?? [],
         OnlyUseAvailableIngredients = onlyUseAvailableIngredients
     };
 

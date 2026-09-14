@@ -61,6 +61,8 @@ public sealed class AzureGroundedRecipeClient(
         Respect every dietary restriction. For every non-halal recipe, winePairing must contain one brief,
         practical rough wine suggestion for that dish. It is non-canonical assistance, not source recipe data.
         For halal-style requests, do not search for a wine pairing and return winePairing as an empty string.
+        When cuisinePreference is non-empty, prefer established source recipes genuinely belonging to that
+        cuisine. Treat recipePreferences as ranking guidance only; never alter a source recipe to satisfy them.
         Return JSON only.
         """;
 
@@ -454,6 +456,12 @@ public sealed class AzureGroundedRecipeClient(
             allergens = request.Allergens.Take(20),
             avoidIngredients = request.AvoidIngredients.Take(20),
             dietaryPreference = request.DietaryPreference.Trim(),
+            cuisinePreference = request.CuisinePreference.Trim(),
+            recipePreferences = request.RecipePreferences
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(10),
             maximumCookingMinutes = request.MaxCookingMinutes > 0 ? request.MaxCookingMinutes : (int?)null,
             cookingTimeLimit = request.MaxCookingMinutes > 0
                 ? $"Do not exceed {request.MaxCookingMinutes} minutes."
