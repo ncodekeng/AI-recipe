@@ -70,7 +70,8 @@ public sealed class PublisherRecipePageClientTests
         Assert.Equal(420, recipe.CaloriesPerServing);
         Assert.Equal(RecipeDirectionsKinds.AiGenerated, recipe.DirectionsKind);
         Assert.Equal(original.Steps, recipe.Steps);
-        Assert.Contains("Verified structured recipe data", response.Notice);
+        Assert.Equal("Safety", response.SafetyNote);
+        Assert.Null(response.Notice);
         Assert.Equal("https://publisher.example.test/images/chicken-potato.jpg", recipe.PublisherImageCandidateUrl);
         Assert.DoesNotContain("chicken-potato.jpg", JsonSerializer.Serialize(recipe), StringComparison.Ordinal);
 

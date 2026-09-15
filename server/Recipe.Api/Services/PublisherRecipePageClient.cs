@@ -129,19 +129,13 @@ public sealed class PublisherRecipePageClient
 
         var recipes = await Task.WhenAll(response.Recipes.Select(recipe =>
             EnrichRecipeAsync(recipe, request, cancellationToken)));
-        var verifiedCount = recipes.Count(recipe => recipe.PublisherPageVerified);
-        if (verifiedCount == 0)
+        if (!recipes.Any(recipe => recipe.PublisherPageVerified))
         {
             return response;
         }
-
-        var verificationNotice = verifiedCount == 1
-            ? "Verified structured recipe data on one publisher page."
-            : $"Verified structured recipe data on {verifiedCount} publisher pages.";
         return response with
         {
-            Recipes = recipes,
-            Notice = AppendNotice(response.Notice, verificationNotice)
+            Recipes = recipes
         };
     }
 
@@ -1063,9 +1057,6 @@ public sealed class PublisherRecipePageClient
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(sourceUri.AbsoluteUri));
         return $"publisher-recipe:v1:{Convert.ToHexString(hash)}";
     }
-
-    private static string AppendNotice(string? current, string message) =>
-        string.IsNullOrWhiteSpace(current) ? message : $"{current} {message}";
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];

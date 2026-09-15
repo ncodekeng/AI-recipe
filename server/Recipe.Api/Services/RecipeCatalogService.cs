@@ -22,7 +22,7 @@ public sealed class RecipeCatalogService(
         GenerateRecipesRequest request,
         CancellationToken cancellationToken)
     {
-        var (effectiveRequest, ignoredIngredients) = ApplyDietaryRestrictions(request);
+        var (effectiveRequest, _) = ApplyDietaryRestrictions(request);
         var provider = _options.Provider.Trim();
         var useAzureWebSearch = provider.Equals("AzureWebSearch", StringComparison.OrdinalIgnoreCase);
         var useEdamam = provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase);
@@ -51,11 +51,7 @@ public sealed class RecipeCatalogService(
                 cachedResponse,
                 effectiveRequest.ShowPhotos,
                 cancellationToken);
-            var cachedResult = cachedWithPhotos with
-            {
-                Notice = AppendNotice(cachedWithPhotos.Notice, "Loaded from the short-term recipe cache.")
-            };
-            return AppendIgnoredIngredientsNotice(cachedResult, ignoredIngredients);
+            return cachedWithPhotos;
         }
 
         try
@@ -74,7 +70,7 @@ public sealed class RecipeCatalogService(
                 rankedResponse,
                 effectiveRequest.ShowPhotos,
                 cancellationToken);
-            return AppendIgnoredIngredientsNotice(result, ignoredIngredients);
+            return result;
         }
         catch (RecipeSafetyException)
         {
@@ -237,29 +233,6 @@ public sealed class RecipeCatalogService(
     private static string AppendNotice(string? current, string message) =>
         string.IsNullOrWhiteSpace(current) ? message : $"{current} {message}";
 
-    private static RecipeGenerationResponse AppendIgnoredIngredientsNotice(
-        RecipeGenerationResponse response,
-        IReadOnlyList<string> ignoredIngredients)
-    {
-        if (ignoredIngredients.Count == 0)
-        {
-            return response;
-        }
-
-        var names = string.Join(", ", ignoredIngredients.Take(5));
-        if (ignoredIngredients.Count > 5)
-        {
-            names += $" and {ignoredIngredients.Count - 5} more";
-        }
-
-        var itemLabel = ignoredIngredients.Count == 1 ? "item" : "items";
-        return response with
-        {
-            Notice = AppendNotice(
-                response.Notice,
-                $"Ignored {ignoredIngredients.Count} Kitchen Memory {itemLabel} that conflict with the selected restrictions: {names}. Your saved Kitchen Memory was not changed.")
-        };
-    }
 }
 
 public sealed class RecipeCatalogException(string message, Exception? innerException = null)

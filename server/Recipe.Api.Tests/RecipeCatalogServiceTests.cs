@@ -319,8 +319,7 @@ public sealed class RecipeCatalogServiceTests
         }, CancellationToken.None);
 
         Assert.Single(response.Recipes);
-        Assert.Contains("Ignored 1 Kitchen Memory item", response.Notice);
-        Assert.Contains("pork", response.Notice, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Kitchen Memory", response.Notice);
         using var requestDocument = System.Text.Json.JsonDocument.Parse(azureHandler.RequestBody!);
         using var inputDocument = System.Text.Json.JsonDocument.Parse(
             requestDocument.RootElement.GetProperty("input").GetString()!);

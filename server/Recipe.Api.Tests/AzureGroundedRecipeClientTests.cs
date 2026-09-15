@@ -24,6 +24,7 @@ public sealed class AzureGroundedRecipeClientTests
 
         var recipe = Assert.Single(response.Recipes);
         Assert.Equal("Azure Web Search", response.Provider);
+        Assert.Empty(response.Notice ?? string.Empty);
         Assert.Equal(sourceUrl, recipe.SourceUrl);
         Assert.True(recipe.SourceVerified);
         Assert.Equal("publisher.example.test", recipe.SourceName);

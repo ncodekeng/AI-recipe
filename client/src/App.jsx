@@ -1392,7 +1392,7 @@ export default function App() {
       })
       setSafetyNote(result.safetyNote)
       setProvider(result.provider)
-      setNotice(result.notice || '')
+      setNotice('')
       setHistory((current) => addHistoryEntry(current, request, result))
       return true
     } catch (requestError) {
@@ -1614,7 +1614,7 @@ export default function App() {
           </div>}
 
           {error && <div className="alert error" role="alert"><span>!</span><p>{error}</p></div>}
-          {notice && <div className="alert info" role="status"><Icon name="sparkles" size={19} /><p>{notice}</p></div>}
+          {notice && appScreen !== 'results' && <div className="alert info" role="status"><Icon name="sparkles" size={19} /><p>{notice}</p></div>}
 
           {appScreen === 'review' && ingredients.length > 0 && (
             <section className="review-section" ref={reviewRef}>

@@ -198,14 +198,9 @@ public sealed class AzureGroundedRecipeClient(
                 "Azure did not return a recipe with a verifiable web-search citation. Try different ingredients or restrictions.");
         }
 
-        var provenanceNotice =
-            "Recipe facts are grounded in Azure web search. Cooking guides are AI-generated, not publisher instructions; use the cited live source as the canonical recipe.";
-        var resultCountNotice = recipes.Count < minimumResultCount
-            ? $"Azure found only {recipes.Count} distinct cited recipe{(recipes.Count == 1 ? string.Empty : "s")} for these ingredients and restrictions. {provenanceNotice}"
-            : provenanceNotice;
         var notice = partialSearchFailure
-            ? $"{resultCountNotice} An additional Azure search failed, so PLATE kept the validated recipes already found."
-            : resultCountNotice;
+            ? "An additional Azure search failed, so PLATE kept the validated recipes already found."
+            : string.Empty;
         return new RecipeGenerationResponse(
             recipes,
             "Azure Web Search",
