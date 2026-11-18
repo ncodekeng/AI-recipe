@@ -120,13 +120,35 @@ if (Test-Path -LiteralPath $OutputPath) {
 }
 
 Write-Host 'Creating the Azure App Service package...'
-Push-Location $publishDirectory
+
+# Written entry by entry rather than with Compress-Archive, which on Windows PowerShell 5.1 records paths
+# with backslashes. The ZIP specification requires forward slashes (APPNOTE 4.4.17.1), and a reader that
+# follows it treats "wwwroot\index.html" as a file whose name contains a backslash rather than as
+# wwwroot/index.html -- so the site deploys as a handful of oddly named files at the root and serves
+# nothing. Azure's own extractor happens to tolerate it; not every tool in the chain will.
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+
+$publishRoot = (Resolve-Path -LiteralPath $publishDirectory).Path.TrimEnd('\') + '\'
+$zipStream = [IO.File]::Open($OutputPath, [IO.FileMode]::Create)
 try {
-    Compress-Archive -Path * -DestinationPath $OutputPath -CompressionLevel Optimal
+    $archive = New-Object IO.Compression.ZipArchive($zipStream, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($file in Get-ChildItem -LiteralPath $publishDirectory -Recurse -File) {
+            $entryName = $file.FullName.Substring($publishRoot.Length).Replace('\', '/')
+            $entry = $archive.CreateEntry($entryName, [IO.Compression.CompressionLevel]::Optimal)
+            $entryStream = $entry.Open()
+            try {
+                $fileStream = [IO.File]::OpenRead($file.FullName)
+                try { $fileStream.CopyTo($entryStream) }
+                finally { $fileStream.Dispose() }
+            }
+            finally { $entryStream.Dispose() }
+        }
+    }
+    finally { $archive.Dispose() }
 }
-finally {
-    Pop-Location
-}
+finally { $zipStream.Dispose() }
 
 # Named so the deploy can be checked against what is actually live:
 #   curl -s https://<host>/ | Select-String -Pattern 'assets/index-.*\.js'
@@ -137,5 +159,8 @@ $mainBundle = (Get-Content -LiteralPath (Join-Path $distDirectory 'index.html') 
 Write-Host "Package ready: $OutputPath"
 Write-Host "Frontend bundle: $mainBundle"
 Write-Host ''
-Write-Host 'Deploy it with:'
-Write-Host "  az webapp deploy --resource-group <rg> --name <app> --type zip --src-path `"$OutputPath`""
+Write-Host 'Deploy by uploading the zip:'
+Write-Host '  Portal > the App Service > Advanced Tools (Kudu) > Go > Tools > Zip Push Deploy,'
+Write-Host '  then drag the zip onto the file list. It replaces site/wwwroot.'
+Write-Host ''
+Write-Host 'Afterwards check the live page serves the bundle named above, not the previous one.'
