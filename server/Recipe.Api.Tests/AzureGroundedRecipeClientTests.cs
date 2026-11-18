@@ -327,6 +327,32 @@ public sealed class AzureGroundedRecipeClientTests
     }
 
     [Fact]
+    public async Task Does_not_offer_the_next_search_a_page_it_has_already_turned_down()
+    {
+        // Ruslan's "only 1 jerk chicken recipe". A batch can cite a real publisher page that MapRecipe then
+        // refuses -- here because the dish does not contain the main ingredient, elsewhere because the
+        // cooking time is too long or the steps are empty. None of that says the URL is bad, but only the
+        // candidates that mapped were recorded, so the retry was told to avoid the pages that had worked
+        // and was free to return the refused one again. With a two-attempt budget that leaves the user
+        // looking at a single recipe.
+        const string refusedUrl = "https://publisher.example.test/lamb-not-beef";
+        const string acceptedUrl = "https://publisher.example.test/real-beef-stew";
+        var handler = new CapturingHandler(
+            ResponseWithIngredients(refusedUrl, "Lamb hotpot", "lamb"),
+            ResponseWithIngredients(acceptedUrl, "Beef stew", "beef"));
+        var client = CreateClient(handler, minimumResultCount: 2, maxSearchAttempts: 2);
+
+        var response = await client.FindRecipesAsync(
+            Request(mainIngredient: "beef"),
+            CancellationToken.None);
+
+        Assert.Single(response.Recipes);
+        Assert.Equal(acceptedUrl, response.Recipes[0].SourceUrl);
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Contains(refusedUrl, handler.RequestBodies[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Includes_admin_recipe_guidance_without_replacing_locked_source_rules()
     {
         const string sourceUrl = "https://publisher.example.test/custom-guidance";

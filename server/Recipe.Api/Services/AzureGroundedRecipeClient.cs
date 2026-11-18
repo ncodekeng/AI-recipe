@@ -106,6 +106,10 @@ public sealed class AzureGroundedRecipeClient(
         var maxSearchAttempts = Math.Clamp(_search.MaxSearchAttempts, 1, 4);
         var recipes = new List<RecipeSuggestion>();
         var searchedSourceUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Counted separately from searchedSourceUrls, which now also holds pages that were turned down.
+        // Only a candidate that mapped tells us Azure really found a usable cited recipe, which is what the
+        // "every recipe needed a missing ingredient" message below is allowed to claim.
+        var mappedCandidateCount = 0;
         var partialSearchFailure = false;
 
         for (var attempt = 0; attempt < maxSearchAttempts && recipes.Count < minimumResultCount; attempt++)
@@ -149,9 +153,30 @@ public sealed class AzureGroundedRecipeClient(
                 .Cast<RecipeSuggestion>()
                 .ToList();
 
+            mappedCandidateCount += mappedCandidates.Count;
+
             foreach (var candidate in mappedCandidates)
             {
                 searchedSourceUrls.Add(candidate.SourceUrl!);
+            }
+
+            // Every page this batch offered is spent now, whether or not it produced a usable recipe.
+            //
+            // Only the successful ones used to be recorded, so the exclusion list sent with the next search
+            // named just the pages that had already worked and left the model free to return the same
+            // rejects again -- burning the single retry the attempt budget allows. MapRecipe turns a
+            // candidate down for an over-long cooking time, an empty step list or a missing main
+            // ingredient, none of which say anything wrong about its URL, and searching again is only worth
+            // an API call if it looks at pages we have not already refused.
+            //
+            // This is the "only 1 jerk chicken recipe" Ruslan reported: one usable result out of a batch,
+            // then a retry that re-offered the same unusable pages and added nothing.
+            foreach (var candidate in searchResult.Payload.Recipes)
+            {
+                if (NormalizeUrl(candidate.SourceUrl) is { } seenSourceUrl)
+                {
+                    searchedSourceUrls.Add(seenSourceUrl);
+                }
             }
 
             var mapped = request.OnlyUseAvailableIngredients
@@ -188,7 +213,7 @@ public sealed class AzureGroundedRecipeClient(
 
         if (recipes.Count == 0)
         {
-            if (request.OnlyUseAvailableIngredients && searchedSourceUrls.Count > 0)
+            if (request.OnlyUseAvailableIngredients && mappedCandidateCount > 0)
             {
                 throw new RecipeSafetyException(
                     "Azure found cited recipes, but each required at least one ingredient not in Kitchen Memory. Choose Show all recipes to see the closest matches.");
