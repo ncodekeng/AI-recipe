@@ -252,10 +252,16 @@ public sealed class AzureGroundedRecipeClient(
             return new ParsedSearchResult(payload!, searchResult.GroundedSources);
         }
 
+        // The text itself, not just its length. A length alone cannot tell a refusal from truncated JSON,
+        // and those need opposite fixes: one is a prompt problem, the other a token-budget problem. This
+        // search failed outright in production on an ordinary basket (eggs, cheese, bread, butter) and the
+        // only evidence was "49 characters", which was not enough to act on. Truncated because the
+        // interesting part is always at the start, and model output is not something to dump whole.
         logger.LogWarning(
-            "Azure recipe batch {BatchNumber} returned unreadable text ({CharacterCount} characters); retrying as JSON only.",
+            "Azure recipe batch {BatchNumber} returned unreadable text ({CharacterCount} characters); retrying as JSON only. Text began: {OutputPreview}",
             searchAttempt + 1,
-            searchResult.OutputText.Length);
+            searchResult.OutputText.Length,
+            Preview(searchResult.OutputText));
 
         searchResult = await SearchAsync(
             request,
@@ -269,9 +275,30 @@ public sealed class AzureGroundedRecipeClient(
             return new ParsedSearchResult(payload!, searchResult.GroundedSources);
         }
 
+        logger.LogWarning(
+            "Azure recipe batch {BatchNumber} was still unreadable after the JSON-only retry ({CharacterCount} characters). Text began: {OutputPreview}",
+            searchAttempt + 1,
+            searchResult.OutputText.Length,
+            Preview(searchResult.OutputText));
+
         throw new RecipeSafetyException(
             "Azure searched the web but did not return readable recipe data in the requested JSON object. Try again or use a different supported deployment.");
     }
+
+    /// <summary>The start of a model response, for diagnosing why it could not be read.</summary>
+    private static string Preview(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "(empty)";
+        }
+
+        var collapsed = WhitespaceRun.Replace(text.Trim(), " ");
+        return collapsed.Length <= 300 ? collapsed : collapsed[..300] + "…";
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex WhitespaceRun =
+        new(@"\s+", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private async Task<SearchResult> SearchAsync(
         GenerateRecipesRequest request,
