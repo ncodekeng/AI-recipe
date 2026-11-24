@@ -115,6 +115,11 @@ public sealed class AzureGroundedRecipeClient(
         for (var attempt = 0; attempt < maxSearchAttempts && recipes.Count < minimumResultCount; attempt++)
         {
             var excludedSourceUrls = searchedSourceUrls.ToList();
+            // The dishes already found, so a later batch is asked for something genuinely different
+            // rather than another publisher's write-up of the dinner we already have. Excluding URLs
+            // alone never did this: every page it named was a different page, and they were all the
+            // same meal.
+            var excludedDishes = recipes.Select(recipe => recipe.Title).ToList();
             var requestedBatchSize = Math.Min(batchSize, candidateLimit - recipes.Count);
             ParsedSearchResult searchResult;
             try
@@ -122,6 +127,7 @@ public sealed class AzureGroundedRecipeClient(
                 searchResult = await SearchReadableAsync(
                     request,
                     excludedSourceUrls,
+                    excludedDishes,
                     attempt,
                     requestedBatchSize,
                     cancellationToken);
@@ -201,11 +207,27 @@ public sealed class AzureGroundedRecipeClient(
 
             foreach (var recipe in mapped)
             {
-                if (recipes.All(existing =>
-                        !string.Equals(existing.SourceUrl, recipe.SourceUrl, StringComparison.OrdinalIgnoreCase)))
+                // Two tests, not one. The URL test keeps the same page out twice; the dish test keeps the
+                // same dinner out from four different pages, which is what made a search of four results
+                // feel like a search of one. See RecipeDishConcept for the measured examples.
+                if (recipes.Any(existing =>
+                        string.Equals(existing.SourceUrl, recipe.SourceUrl, StringComparison.OrdinalIgnoreCase)))
                 {
-                    recipes.Add(recipe);
+                    continue;
                 }
+
+                var duplicateOf = recipes.FirstOrDefault(existing =>
+                    RecipeDishConcept.IsSameDish(existing.Title, recipe.Title));
+                if (duplicateOf is not null)
+                {
+                    logger.LogInformation(
+                        "Discarded {Title} as the same dish as {Existing}, from a different publisher.",
+                        recipe.Title,
+                        duplicateOf.Title);
+                    continue;
+                }
+
+                recipes.Add(recipe);
             }
         }
 
@@ -236,6 +258,7 @@ public sealed class AzureGroundedRecipeClient(
     private async Task<ParsedSearchResult> SearchReadableAsync(
         GenerateRecipesRequest request,
         IReadOnlyList<string> excludedSourceUrls,
+        IReadOnlyList<string> excludedDishes,
         int searchAttempt,
         int requestedBatchSize,
         CancellationToken cancellationToken)
@@ -243,6 +266,7 @@ public sealed class AzureGroundedRecipeClient(
         var searchResult = await SearchAsync(
             request,
             excludedSourceUrls,
+            excludedDishes,
             searchAttempt,
             requestedBatchSize,
             jsonRetry: false,
@@ -266,6 +290,7 @@ public sealed class AzureGroundedRecipeClient(
         searchResult = await SearchAsync(
             request,
             excludedSourceUrls,
+            excludedDishes,
             searchAttempt,
             requestedBatchSize,
             jsonRetry: true,
@@ -303,6 +328,7 @@ public sealed class AzureGroundedRecipeClient(
     private async Task<SearchResult> SearchAsync(
         GenerateRecipesRequest request,
         IReadOnlyList<string> excludedSourceUrls,
+        IReadOnlyList<string> excludedDishes,
         int searchAttempt,
         int requestedBatchSize,
         bool jsonRetry,
@@ -330,7 +356,7 @@ public sealed class AzureGroundedRecipeClient(
             parallel_tool_calls = false,
             include = new[] { "web_search_call.action.sources" },
             instructions = BuildInstructions(request, jsonRetry),
-            input = BuildInput(request, excludedSourceUrls, searchAttempt, requestedBatchSize)
+            input = BuildInput(request, excludedSourceUrls, excludedDishes, searchAttempt, requestedBatchSize)
         };
 
         using var message = new HttpRequestMessage(HttpMethod.Post, BuildResponsesUri())
@@ -419,8 +445,94 @@ public sealed class AzureGroundedRecipeClient(
 
         var firstBrace = trimmed.IndexOf('{');
         var lastBrace = trimmed.LastIndexOf('}');
-        return firstBrace >= 0 && lastBrace > firstBrace &&
-               TryDeserialize(trimmed[firstBrace..(lastBrace + 1)], out payload);
+        if (firstBrace >= 0 && lastBrace > firstBrace &&
+            TryDeserialize(trimmed[firstBrace..(lastBrace + 1)], out payload))
+        {
+            return true;
+        }
+
+        return TrySalvageCompleteRecipes(trimmed, out payload);
+    }
+
+    /// <summary>
+    /// Recovers the recipes that did arrive whole from a response that stopped mid-sentence.
+    ///
+    /// A batch is capped by MaxOutputTokens, and a few recipes with full ingredient lists can reach it.
+    /// When that happens the model has already done the search and the writing, and the text is valid
+    /// JSON right up to the point it was cut off -- measured on 24 November 2026 at 6,815 characters
+    /// beginning `{ "recipes": [ { "title": "Traditional Beef Brisket", ...`. Every one of those recipes
+    /// was then thrown away, the batch counted as a failure, and an attempt spent for nothing. Two of the
+    /// three baskets tested lost results purely to this.
+    ///
+    /// So the array is walked and every complete object in it kept. A half-written final recipe is
+    /// dropped, which is the point: nothing is guessed at or completed on the model's behalf, and a
+    /// recipe missing its source URL or ingredients would be refused by MapRecipe anyway.
+    /// </summary>
+    private static bool TrySalvageCompleteRecipes(string text, out GroundedRecipePayload? payload)
+    {
+        payload = null;
+
+        var arrayStart = text.IndexOf("\"recipes\"", StringComparison.OrdinalIgnoreCase);
+        if (arrayStart < 0)
+        {
+            return false;
+        }
+
+        var bracket = text.IndexOf('[', arrayStart);
+        if (bracket < 0)
+        {
+            return false;
+        }
+
+        var complete = new List<string>();
+        var depth = 0;
+        var objectStart = -1;
+        var inString = false;
+        var escaped = false;
+
+        for (var i = bracket + 1; i < text.Length; i++)
+        {
+            var c = text[i];
+
+            // Braces and brackets inside a string literal are text, not structure.
+            if (inString)
+            {
+                if (escaped) { escaped = false; }
+                else if (c == '\\') { escaped = true; }
+                else if (c == '"') { inString = false; }
+                continue;
+            }
+
+            switch (c)
+            {
+                case '"':
+                    inString = true;
+                    break;
+                case '{':
+                    if (depth == 0) { objectStart = i; }
+                    depth++;
+                    break;
+                case '}':
+                    depth--;
+                    if (depth == 0 && objectStart >= 0)
+                    {
+                        complete.Add(text[objectStart..(i + 1)]);
+                        objectStart = -1;
+                    }
+                    break;
+                case ']' when depth == 0:
+                    // The array closed properly, so this was not a truncation after all.
+                    i = text.Length;
+                    break;
+            }
+        }
+
+        if (complete.Count == 0)
+        {
+            return false;
+        }
+
+        return TryDeserialize($"{{\"recipes\":[{string.Join(',', complete)}]}}", out payload);
     }
 
     private static bool TryDeserialize(string json, out GroundedRecipePayload? payload)
@@ -440,6 +552,7 @@ public sealed class AzureGroundedRecipeClient(
     private string BuildInput(
         GenerateRecipesRequest request,
         IReadOnlyList<string> excludedSourceUrls,
+        IReadOnlyList<string> excludedDishes,
         int searchAttempt,
         int requestedBatchSize)
     {
@@ -494,6 +607,18 @@ public sealed class AzureGroundedRecipeClient(
             minimumCandidateCount = requestedBatchSize,
             batchNumber = searchAttempt + 1,
             excludedSourceUrls = excludedSourceUrls.Take(12),
+            // Named dishes rather than URLs. Excluding pages only ever moved the search to another
+            // publisher's version of the same dinner, which is why four results read as one.
+            excludedDishes = excludedDishes.Take(12),
+            distinctDishRequirement =
+                "Every recipe in this batch must be a different dish from the others and from every title "
+                + "in excludedDishes. Different publishers' versions of one dish do not count as different "
+                + "recipes. Vary the cooking method, the cuisine or the form of the meal, not just the "
+                + "wording of the title.",
+            pageTypeRequirement =
+                "Return only pages that are a single recipe. Never return a roundup, listicle, category "
+                + "index, tag page or search-results page, such as a title of the form \"N Best ... "
+                + "Recipes\" or a bare \"... recipes\".",
             ingredients = searchIngredients,
             availableIngredientNames = searchIngredients.Select(item => item.name),
             searchFocusIngredientNames,
@@ -535,6 +660,18 @@ public sealed class AzureGroundedRecipeClient(
             candidate.CookingMinutes < 0 ||
             (request.MaxCookingMinutes > 0 && candidate.CookingMinutes > request.MaxCookingMinutes))
         {
+            return null;
+        }
+
+        // A roundup is not a recipe. Measured on 24 November 2026, a brisket search returned "41 Best
+        // Brisket Recipes & Ideas" and a bare "Beef brisket recipes" among its four results: someone
+        // tapping either gets a page of links rather than something to cook. The model cites them because
+        // they are genuine publisher pages that match the query, so nothing upstream catches them.
+        if (RecipeDishConcept.IsListingPage(candidate.Title, citedSourceUrl))
+        {
+            logger.LogInformation(
+                "Discarded a listing page offered as a recipe: {Title}",
+                Truncate(candidate.Title.Trim(), 120));
             return null;
         }
 

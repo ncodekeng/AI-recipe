@@ -313,9 +313,13 @@ public sealed class AzureGroundedRecipeClientTests
     {
         const string firstUrl = "https://publisher.example.test/first-recipe";
         const string secondUrl = "https://publisher.example.test/second-recipe";
+        // Two different dishes, not one title reused. Both batches used to carry the helper's default
+        // "Publisher lamb stew", which deduplication by source URL alone was happy to count twice; now
+        // that the same dinner from two publishers is recognised, the fixture has to be two dinners for
+        // this test to still be about searching again rather than about deduplication.
         var handler = new CapturingHandler(
             Response(firstUrl, firstUrl, string.Empty),
-            Response(secondUrl, secondUrl, string.Empty));
+            Response(secondUrl, secondUrl, string.Empty, title: "Publisher chicken curry"));
         var client = CreateClient(handler, minimumResultCount: 2, maxSearchAttempts: 2);
 
         var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
@@ -510,6 +514,69 @@ public sealed class AzureGroundedRecipeClientTests
         Assert.Contains("Unlimited", inputDocument.RootElement.GetProperty("cookingTimeLimit").GetString(), StringComparison.Ordinal);
     }
 
+    // ---- a batch cut off by the output token limit -------------------------------------------------
+
+    [Fact]
+    public async Task Keeps_the_recipes_that_arrived_whole_when_a_batch_is_cut_off()
+    {
+        // A batch is capped by MaxOutputTokens, and recipes with full ingredient lists reach it. The text
+        // is then valid JSON right up to the cut. Measured on 24 November 2026: a brisket search failed
+        // outright with both batches truncated at about 6,800 characters, each starting with complete
+        // recipes that were discarded whole and an attempt spent for nothing.
+        const string url = "https://publisher.example.test/slow-roast-brisket";
+        var truncated =
+            "{\"recipes\":[" + SalvageRecipeJson("Slow-Roast Beef Brisket", url) +
+            ",{\"title\":\"Pulled Beef Bris";
+
+        var handler = new CapturingHandler(TextResponse(url, truncated));
+        var client = CreateClient(handler, minimumResultCount: 1, maxSearchAttempts: 1);
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        var recipe = Assert.Single(response.Recipes);
+        Assert.Equal("Slow-Roast Beef Brisket", recipe.Title);
+    }
+
+    [Fact]
+    public async Task Still_refuses_a_batch_with_nothing_complete_in_it()
+    {
+        // Cut so early that no recipe finished, or a refusal. There is nothing to salvage, and an empty
+        // success would be worse than a failure.
+        const string nothingComplete = "{\"recipes\":[{\"title\":\"Half a rec";
+        var handler = new CapturingHandler(
+            TextResponse("https://publisher.example.test/x", nothingComplete),
+            TextResponse("https://publisher.example.test/x", nothingComplete));
+        var client = CreateClient(handler, minimumResultCount: 1, maxSearchAttempts: 1);
+
+        await Assert.ThrowsAsync<RecipeSafetyException>(
+            () => client.FindRecipesAsync(Request(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_brace_inside_a_title_does_not_end_a_recipe_early()
+    {
+        // Publishers really do title recipes this way -- a live search returned "Beef Pasta in Tomato
+        // Sauce {Beef Ragu Pasta}" -- and a naive brace count would cut the object at the wrong place.
+        const string url = "https://publisher.example.test/ragu";
+        var truncated =
+            "{\"recipes\":[" + SalvageRecipeJson("Beef Pasta {Beef Ragu Pasta}", url) +
+            ",{\"title\":\"cut off here";
+
+        var handler = new CapturingHandler(TextResponse(url, truncated));
+        var client = CreateClient(handler, minimumResultCount: 1, maxSearchAttempts: 1);
+
+        var response = await client.FindRecipesAsync(Request(), CancellationToken.None);
+
+        var recipe = Assert.Single(response.Recipes);
+        Assert.Equal("Beef Pasta {Beef Ragu Pasta}", recipe.Title);
+    }
+
+    private static string SalvageRecipeJson(string title, string url) =>
+        "{\"title\":" + JsonSerializer.Serialize(title) + ",\"sourceUrl\":\"" + url + "\"," +
+        "\"cookingMinutes\":75,\"servings\":2,\"cuisine\":\"British\",\"difficulty\":\"Easy\"," +
+        "\"ingredients\":[{\"amount\":\"500 g\",\"name\":\"lamb\",\"originalText\":\"500 g lamb\"}]," +
+        "\"cookingGuideSteps\":[\"Brown the lamb for 6 to 8 minutes.\"," +
+        "\"Simmer until tender and confirm it is safely cooked before serving.\"]}";
     private static AzureGroundedRecipeClient CreateClient(
         HttpMessageHandler handler,
         int minimumResultCount = 1,
@@ -607,7 +674,8 @@ public sealed class AzureGroundedRecipeClientTests
         string winePairing,
         bool wrapInText = false,
         string[]? tags = null,
-        int? caloriesPerServing = null)
+        int? caloriesPerServing = null,
+        string title = "Publisher lamb stew")
     {
         var recipePayload = JsonSerializer.Serialize(new
         {
@@ -615,7 +683,7 @@ public sealed class AzureGroundedRecipeClientTests
             {
                 new
                 {
-                    title = "Publisher lamb stew",
+                    title,
                     cookingMinutes = 75,
                     prepMinutes = 15,
                     cookMinutes = 60,
