@@ -629,6 +629,18 @@ public sealed class AzureGroundedRecipeClient(
             avoidIngredients = request.AvoidIngredients.Take(20),
             dietaryPreference = request.DietaryPreference.Trim(),
             cuisinePreference = request.CuisinePreference.Trim(),
+            // All three were absent from the request model, so they never arrived here at all: the meal
+            // type picker, the "Anything else?" box and Inspire Me changed nothing about the search.
+            mealType = request.MealType.Trim(),
+            // Data, not instructions. The standing rule at the top of Instructions already tells the
+            // model to treat every user value that way; saying what the field is keeps it unambiguous.
+            customInstructions = Truncate(request.CustomInstructions.Trim(), 100),
+            discoverByPreference = request.DiscoverByPreference,
+            discoveryStrategy = request.DiscoverByPreference
+                ? "No ingredients were supplied and none are implied. Choose dishes from the stated cuisine, "
+                  + "meal type, dietary preference and any custom request, and vary the cuisine across the "
+                  + "batch when no cuisine was chosen."
+                : string.Empty,
             recipePreferences = request.RecipePreferences
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())

@@ -109,7 +109,10 @@ public sealed class RecipeCatalogService(
             }
         }
 
-        if (allowedIngredients.Count == 0)
+        // An empty basket is only a problem when the search was supposed to have one. Inspire Me sends
+        // none on purpose, so there is nothing for the restrictions to conflict with and nothing to
+        // report; the preferences drive the search instead.
+        if (allowedIngredients.Count == 0 && !request.DiscoverByPreference)
         {
             throw new RecipeSafetyException(
                 "Every submitted ingredient conflicts with the selected dietary restrictions. Update the restrictions or add a compatible ingredient.");
@@ -122,19 +125,16 @@ public sealed class RecipeCatalogService(
             effectiveMainIngredient = string.Empty;
         }
 
-        var effectiveRequest = new GenerateRecipesRequest
+        // Only the two fields this method actually changes. Everything else copies itself.
+        //
+        // This was written out property by property, and two were missed: CuisinePreference and
+        // RecipePreferences never made it across, so AzureGroundedRecipeClient read them as empty and a
+        // chosen cuisine or preference chip changed nothing about the search. Nothing failed; the
+        // selection was simply discarded on the way past.
+        var effectiveRequest = request with
         {
             Ingredients = allowedIngredients,
-            Allergens = request.Allergens,
-            AvoidIngredients = request.AvoidIngredients,
-            RecentlyShownRecipeIds = request.RecentlyShownRecipeIds,
-            DietaryPreference = request.DietaryPreference,
             MainIngredient = effectiveMainIngredient,
-            MaxCookingMinutes = request.MaxCookingMinutes,
-            Servings = request.Servings,
-            ShowPhotos = request.ShowPhotos,
-            MaxRecipes = request.MaxRecipes,
-            OnlyUseAvailableIngredients = request.OnlyUseAvailableIngredients
         };
 
         return (

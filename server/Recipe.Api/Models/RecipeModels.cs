@@ -3,11 +3,20 @@ using System.Text.Json.Serialization;
 
 namespace Recipe.Api.Models;
 
-public sealed class GenerateRecipesRequest
+// A record, not a class, and deliberately.
+//
+// RecipeCatalogService rebuilds this after applying dietary restrictions. Built by hand, that copy left
+// out CuisinePreference and RecipePreferences, so a chosen cuisine and every preference chip reached the
+// search as empty strings -- the selections did nothing at all, silently, and nothing failed to say so.
+// `request with { ... }` copies every property by default, so a field added here cannot be forgotten
+// there. See ApplyDietaryRestrictions.
+public sealed record GenerateRecipesRequest
 {
     public const int MaxIngredientCount = 100;
 
-    [MinLength(1)]
+    // No MinLength: an empty basket is legitimate when DiscoverByPreference is set, which is what the
+    // Inspire Me screen sends and what "No scanning needed" on that screen promises. Model-level
+    // validation cannot see the other field, so the rule lives in RecipesController where both are known.
     [MaxLength(MaxIngredientCount)]
     public List<IngredientInput> Ingredients { get; init; } = [];
     public List<string> Allergens { get; init; } = [];
@@ -37,6 +46,24 @@ public sealed class GenerateRecipesRequest
     public int MaxRecipes { get; init; } = 5;
 
     public bool OnlyUseAvailableIngredients { get; init; }
+
+    // The three below are sent by the app and were missing from this model entirely, so they were
+    // discarded at deserialization and never reached the search. The meal type picker, the "Anything
+    // else?" box and Inspire Me itself all had no effect on the result.
+
+    /// <summary>Breakfast, Lunch, Dinner, Snack, Soup, Salad, Sandwich, or empty for any.</summary>
+    [MaxLength(40)]
+    public string MealType { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Inspire Me: the basket is empty on purpose and the search is driven by the preferences instead.
+    /// Without this an empty basket is indistinguishable from a scan that lost its ingredients.
+    /// </summary>
+    public bool DiscoverByPreference { get; init; }
+
+    /// <summary>Free text from the "Anything else?" box. Treated as data, never as instructions.</summary>
+    [MaxLength(100)]
+    public string CustomInstructions { get; init; } = string.Empty;
 }
 
 public sealed record RecipeIngredient(

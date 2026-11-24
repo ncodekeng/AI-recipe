@@ -19,7 +19,12 @@ public sealed class RecipesController(
         [FromBody] GenerateRecipesRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.Ingredients.Count == 0 || request.Ingredients.All(item => string.IsNullOrWhiteSpace(item.Name)))
+        // Inspire Me deliberately sends no ingredients -- its screen says "No scanning needed" -- and the
+        // preferences drive the search instead. Everywhere else an empty basket means a scan that found
+        // nothing, which is worth saying plainly. The model cannot express this because it needs both
+        // fields at once, which is why Ingredients no longer carries [MinLength(1)].
+        var hasIngredients = request.Ingredients.Any(item => !string.IsNullOrWhiteSpace(item.Name));
+        if (!hasIngredients && !request.DiscoverByPreference)
         {
             return BadRequest(new ProblemDetails
             {
