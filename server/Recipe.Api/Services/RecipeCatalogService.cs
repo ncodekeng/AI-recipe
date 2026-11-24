@@ -56,20 +56,52 @@ public sealed class RecipeCatalogService(
 
         try
         {
+            // Stage timings, because a 122-second search has to be attributed before it can be fixed.
+            // One line per request so a benchmark run can be read straight out of the log, and cheap
+            // enough to leave on: a handful of Stopwatch reads against calls measured in seconds.
+            var total = System.Diagnostics.Stopwatch.StartNew();
+            var stage = System.Diagnostics.Stopwatch.StartNew();
+
             var response = useAzureWebSearch
                 ? await azureWebSearch.FindRecipesAsync(effectiveRequest, cancellationToken)
                 : await edamam.FindRecipesAsync(effectiveRequest, cancellationToken);
+            var discoveryMs = stage.ElapsedMilliseconds;
+
+            stage.Restart();
             var safeResponse = safetyValidator.Validate(response, effectiveRequest);
+            var safetyMs = stage.ElapsedMilliseconds;
+
+            stage.Restart();
             var enrichedResponse = useAzureWebSearch
                 ? await publisherPages.EnrichAsync(safeResponse, effectiveRequest, cancellationToken)
                 : safeResponse;
+            var enrichmentMs = stage.ElapsedMilliseconds;
+
+            stage.Restart();
             var verifiedResponse = safetyValidator.Validate(enrichedResponse, effectiveRequest);
             var rankedResponse = RankAndLimit(verifiedResponse, effectiveRequest);
             cache.Store(effectiveRequest, rankedResponse);
+            var validateAndRankMs = stage.ElapsedMilliseconds;
+
+            stage.Restart();
             var result = await ApplyCommercialImagesAsync(
                 rankedResponse,
                 effectiveRequest.ShowPhotos,
                 cancellationToken);
+            var imagesMs = stage.ElapsedMilliseconds;
+
+            logger.LogInformation(
+                "SEARCH TIMING total={TotalMs}ms discovery={DiscoveryMs}ms safety={SafetyMs}ms "
+                + "enrichment={EnrichmentMs}ms validateRank={ValidateRankMs}ms images={ImagesMs}ms "
+                + "recipes={RecipeCount} photos={ShowPhotos}",
+                total.ElapsedMilliseconds,
+                discoveryMs,
+                safetyMs,
+                enrichmentMs,
+                validateAndRankMs,
+                imagesMs,
+                result.Recipes.Count,
+                effectiveRequest.ShowPhotos);
             return result;
         }
         catch (RecipeSafetyException)

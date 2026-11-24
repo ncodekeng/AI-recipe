@@ -58,6 +58,16 @@ builder.Services.AddHttpClient<AzureGroundedRecipeClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
 });
+// Discovery through Serper. A short timeout on purpose: this step exists to be fast, and a slow search
+// provider should be dropped and worked around rather than allowed to stretch the whole request. The
+// per-query deadline inside the provider is shorter still.
+builder.Services.AddHttpClient<SerperDiscoveryProvider>(client =>
+{
+    var endpoint = builder.Configuration["RecipeCatalog:GoogleSearch:Endpoint"];
+    client.BaseAddress = new Uri(
+        string.IsNullOrWhiteSpace(endpoint) ? "https://google.serper.dev/" : endpoint);
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
 builder.Services.AddHttpClient<PublisherRecipePageClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(15);

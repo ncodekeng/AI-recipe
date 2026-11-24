@@ -365,11 +365,26 @@ public sealed class AzureGroundedRecipeClient(
         };
         message.Headers.Add("api-key", _settings.ApiKey);
 
+        // Each model call is seconds long and there are up to two per attempt, so this is where a slow
+        // search is won or lost. Timed per call rather than per attempt so a wasted JSON-only retry shows
+        // up as its own cost rather than hiding inside the attempt's total.
+        var call = System.Diagnostics.Stopwatch.StartNew();
         using var response = await httpClient.SendAsync(message, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        logger.LogInformation(
+            "AZURE CALL batch={BatchNumber} jsonRetry={JsonRetry} status={Status} elapsed={ElapsedMs}ms bytes={Bytes}",
+            searchAttempt + 1,
+            jsonRetry,
+            (int)response.StatusCode,
+            call.ElapsedMilliseconds,
+            responseBody.Length);
+
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
         {
-            throw new InvalidOperationException("The Azure web-search allowance was reached. Please wait and try again.");
+            // Azure's own 429, not PLATE's daily allowance. The old wording said "allowance was reached",
+            // which reads as the UsageControl limit and sent diagnosis the wrong way for an afternoon.
+            throw new InvalidOperationException(
+                "Azure OpenAI rate-limited the recipe search (HTTP 429). Please wait and try again.");
         }
         if (!response.IsSuccessStatusCode)
         {
