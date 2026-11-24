@@ -21,6 +21,19 @@ public sealed class PublisherRecipePageClient
         MaxDepth = 64
     };
 
+    /// <summary>
+    /// How many JSON-LD blocks on one page are worth parsing. A page that genuinely describes recipes uses
+    /// a handful; far more than this is either a listing page or something adversarial.
+    /// </summary>
+    private const int MaxJsonLdBlocksParsed = 50;
+
+    /// <summary>
+    /// How far to walk looking for them. Deliberately loose, because publishers put their structured data
+    /// behind however many analytics and framework tags they happen to load -- BBC Good Food uses 63 script
+    /// tags and puts the recipe in the 52nd. This exists only so a pathological page cannot spin the loop.
+    /// </summary>
+    private const int MaxScriptTagsScanned = 2000;
+
     private static readonly Regex IngredientPrefix = new(
         "^(?:about\\s+|approximately\\s+)?(?:\\d+(?:[./]\\d+)?|[\\u00BC\\u00BD\\u00BE\\u2153\\u2154\\u215B\\u215C\\u215D\\u215E])(?:\\s*(?:-|\\u2013|to)\\s*(?:\\d+(?:[./]\\d+)?|[\\u00BC\\u00BD\\u00BE\\u2153\\u2154\\u215B\\u215C\\u215D\\u215E]))?\\s*(?:\\([^)]{1,40}\\)\\s*)?(?:(?:cups?|tablespoons?|tbsp|teaspoons?|tsp|grams?|g|kilograms?|kg|millilitres?|milliliters?|ml|litres?|liters?|l|ounces?|oz|pounds?|lb|cloves?|cans?|tins?|packs?|packages?|slices?|pieces?|pinches?|bunches?)\\b[.,]?\\s*)?(?:of\\s+)?",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
@@ -369,8 +382,22 @@ public sealed class PublisherRecipePageClient
     {
         var recipes = new List<PublisherRecipeData>();
         var cursor = 0;
-        for (var blockCount = 0; blockCount < 50; blockCount++)
+        // The budget counts JSON-LD blocks actually parsed, not script tags walked past.
+        //
+        // It used to bound the whole loop, and that silently lost every BBC Good Food recipe. Their pages
+        // carry 63 script tags and put the Recipe node in the 52nd, so the scan gave up two tags short of
+        // the only block that mattered -- the page fetched with a 200, parsed to nothing, failed
+        // verification, and lost its photo. Measured on both pages checked, so it is the template, not one
+        // bad page.
+        //
+        // Walking a script tag is two IndexOf calls over a response already capped at MaxResponseBytes;
+        // parsing JSON is the cost worth capping. The scan is bounded separately and far more loosely, and
+        // the loop terminates regardless because the cursor always moves past the tag it just read.
+        var parsedBlocks = 0;
+        var scannedTags = 0;
+        while (parsedBlocks < MaxJsonLdBlocksParsed && scannedTags < MaxScriptTagsScanned)
         {
+            scannedTags++;
             var scriptStart = html.IndexOf("<script", cursor, StringComparison.OrdinalIgnoreCase);
             if (scriptStart < 0)
             {
@@ -392,6 +419,7 @@ public sealed class PublisherRecipePageClient
             var tag = html.AsSpan(scriptStart, tagEnd - scriptStart + 1);
             if (tag.Contains("application/ld+json", StringComparison.OrdinalIgnoreCase))
             {
+                parsedBlocks++;
                 var block = html[(tagEnd + 1)..scriptEnd].Trim();
                 recipes.AddRange(ParseJsonDocument(block, sourceUri));
             }

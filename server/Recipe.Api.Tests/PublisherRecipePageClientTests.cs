@@ -82,6 +82,59 @@ public sealed class PublisherRecipePageClientTests
         Assert.False(testImage.CommercialUseAllowed);
     }
 
+    /// <summary>
+    /// Measured against the real site on 24 November 2026: a BBC Good Food recipe page carries 63 script
+    /// tags and puts its Recipe JSON-LD in the 52nd. The scan used to stop after 50 script tags, so every
+    /// page on the UK's largest recipe site fetched with a 200, parsed to nothing, failed verification and
+    /// lost its photo. The budget now counts blocks parsed, not tags walked past.
+    /// </summary>
+    [Fact]
+    public async Task Reads_json_ld_that_sits_behind_a_wall_of_framework_scripts()
+    {
+        var padding = string.Concat(Enumerable.Range(0, 51).Select(i =>
+            $"<script src=\"/_next/static/chunk-{i}.js\"></script>\n"));
+        var html = $$"""
+            <html><head>
+            <script type="application/ld+json">{"@type":"BreadcrumbList","itemListElement":[]}</script>
+            {{padding}}
+            <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "Recipe",
+              "name": "Slow Cooker Beef Brisket",
+              "image": [
+                { "@type": "ImageObject", "url": "/brisket.jpg", "width": 900, "height": 836 }
+              ],
+              "totalTime": "PT9H",
+              "recipeYield": "6",
+              "recipeIngredient": ["1 kg beef brisket", "500 ml golden ale", "2 onions"],
+              "recipeInstructions": [{ "@type": "HowToStep", "text": "Publisher method is not copied." }]
+            }
+            </script>
+            </head></html>
+            """;
+
+        var client = CreateClient(new PageHandler(html), "Production", allowPrototypeImages: true);
+
+        var response = await client.EnrichAsync(
+            new RecipeGenerationResponse([Recipe("Slow Cooker Beef Brisket")], "Azure Web Search", "Safety"),
+            new GenerateRecipesRequest
+            {
+                Ingredients = [new IngredientInput("beef brisket", "1 kg")],
+                MainIngredient = "beef brisket"
+            },
+            CancellationToken.None);
+
+        var recipe = Assert.Single(response.Recipes);
+        Assert.True(recipe.PublisherPageVerified, "the Recipe block sits past the old 50-tag cut-off");
+        Assert.Equal("https://publisher.example.test/brisket.jpg", recipe.PublisherImageCandidateUrl);
+
+        // The customer-visible symptom: no verification meant no photo.
+        var image = client.CreateUnverifiedPublisherImageForPrototype(recipe);
+        Assert.NotNull(image);
+        Assert.Equal("https://publisher.example.test/brisket.jpg", image.ImageUrl);
+    }
+
     [Fact]
     public async Task Rejects_json_ld_for_a_different_recipe()
     {
