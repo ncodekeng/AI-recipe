@@ -323,6 +323,62 @@ public sealed class RecipeRankingServiceTests
         Assert.Contains("\"imageVerified\":true", json);
     }
 
+    [Fact]
+    public void Keeps_a_recipe_whose_main_ingredient_survives_only_in_the_publishers_own_line()
+    {
+        // Measured on 25 November 2026: "Easy chicken casserole" was dropped from a chicken search because
+        // its chicken line reduced to the name "bone-in", and the customer got three recipes instead of
+        // four. The ingredient name is ours and derived; the line is the publisher's and says chicken.
+        var casserole = new RecipeSuggestion(
+            Guid.NewGuid(),
+            "Easy chicken casserole",
+            "A provider recipe.",
+            90,
+            "Easy",
+            "British",
+            4,
+            0,
+            ["Dinner"],
+            [
+                new RecipeIngredient("1.5kg", "bone-in", null, null, "1.5kg chicken thighs, bone-in"),
+                new RecipeIngredient("1", "onion", null, null, "1 onion, chopped"),
+            ],
+            [],
+            "coral",
+            SourceUrl: "https://publisher.example.test/casserole");
+
+        var ranked = new RecipeRankingService(new IngredientNormalizer()).Rank(
+            [casserole],
+            [new IngredientInput("chicken thighs", "6")],
+            mainIngredient: "chicken");
+
+        Assert.Single(ranked);
+    }
+
+    [Fact]
+    public void Still_drops_a_recipe_that_does_not_contain_the_main_ingredient_at_all()
+    {
+        // The guard on the rule above: reading the publisher's line must widen what counts as present,
+        // not stop the check working. A brisket search returning a taco casserole is the worse result.
+        var ranked = new RecipeRankingService(new IngredientNormalizer()).Rank(
+            [
+                new RecipeSuggestion(
+                    Guid.NewGuid(), "Three bean chilli", "A provider recipe.", 40, "Easy", "Mexican", 4, 0,
+                    ["Dinner"],
+                    [
+                        new RecipeIngredient("2 tins", "mixed beans", null, null, "2 tins mixed beans, drained"),
+                        new RecipeIngredient("1", "onion", null, null, "1 onion, chopped"),
+                    ],
+                    [],
+                    "coral",
+                    SourceUrl: "https://publisher.example.test/chilli"),
+            ],
+            [new IngredientInput("beef brisket", "1 kg")],
+            mainIngredient: "beef brisket");
+
+        Assert.Empty(ranked);
+    }
+
     private static RecipeSuggestion Recipe(string title, params string[] ingredients) => new(
         Guid.NewGuid(),
         title,

@@ -49,8 +49,17 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
         var availability = requiredCount == 0
             ? 1d
             : (double)available.Count / requiredCount;
+        // The name is ours, derived from the publisher's line; the line itself is theirs. So the line gets
+        // the final say, because a recipe is only dropped when its main ingredient is genuinely absent.
+        // Measured on 25 November 2026: "Easy chicken casserole" was dropped from a chicken search because
+        // its chicken line reduced to the name "bone-in" -- the same extraction that turned BBC Good Food's
+        // dual units "150g/5½oz small mushrooms" into the name "/5½oz small mushrooms". The customer got
+        // three recipes instead of four over a quantity format.
         var mainIngredientPresent = string.IsNullOrWhiteSpace(mainIngredient) ||
-            meaningfulRequired.Any(item => normalizer.Matches(mainIngredient, item.Name));
+            meaningfulRequired.Any(item =>
+                normalizer.Matches(mainIngredient, item.Name) ||
+                (!string.IsNullOrWhiteSpace(item.OriginalText) &&
+                    normalizer.Matches(mainIngredient, item.OriginalText)));
         var matchPercentage = mainIngredientPresent
             ? (int)Math.Round(
                 (coverage * 0.40d + availability * 0.60d) * 100d,

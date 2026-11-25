@@ -201,15 +201,33 @@ public sealed class RecipeCatalogService(
         RecipeGenerationResponse response,
         GenerateRecipesRequest request)
     {
-        var recipes = ranking
+        var ranked = ranking
             .Rank(
                 response.Recipes,
                 request.Ingredients,
                 request.RecentlyShownRecipeIds,
                 request.OnlyUseAvailableIngredients,
                 request.MainIngredient)
+            .ToList();
+        var recipes = ranked
             .Take(Math.Clamp(request.MaxRecipes, 3, 5))
             .ToList();
+
+        // Ranking drops a recipe whose main ingredient it cannot find in the ingredient list, and the
+        // customer simply gets three results instead of four with nothing to explain it. Named here so a
+        // short batch is attributable to a concept the normalizer does not know rather than to the search.
+        if (ranked.Count < response.Recipes.Count)
+        {
+            logger.LogInformation(
+                "RANKING DROPPED kept={Kept} of={Of} main={Main} dropped={Dropped}",
+                ranked.Count,
+                response.Recipes.Count,
+                request.MainIngredient,
+                string.Join(" | ", response.Recipes
+                    .Where(recipe => ranked.All(item => item.Id != recipe.Id))
+                    .Select(recipe => $"{recipe.Title} [{string.Join(", ", recipe.Ingredients.Take(8).Select(ingredient => ingredient.Name))}]")));
+        }
+
         if (request.OnlyUseAvailableIngredients && recipes.Count == 0)
         {
             return response with

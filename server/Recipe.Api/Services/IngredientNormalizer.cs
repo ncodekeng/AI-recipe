@@ -25,6 +25,23 @@ public sealed partial class IngredientNormalizer
         ("broccoli", ["broccoli florets", "broccoli"]),
         ("spinach", ["baby spinach", "spinach leaves", "spinach"]),
         ("mushroom", ["button mushrooms", "chestnut mushrooms", "mushrooms", "mushroom"]),
+        // The same vegetable under both of its names. PLATE's market is en-GB and its customers type
+        // "aubergine", but the publishers it searches are global. Measured on 25 November 2026, a veg
+        // search dropped "Spanish Eggplant (Aubergine)" -- a page whose own title says aubergine -- because
+        // its ingredient line said eggplant and nothing here connected the two, so RecipeRankingService
+        // judged the main ingredient absent and the customer got two recipes instead of four. Only that
+        // pair was measured; the rest are the same naming split waiting to happen.
+        ("aubergine", ["aubergines", "eggplants", "eggplant", "aubergine"]),
+        ("courgette", ["courgettes", "zucchinis", "zucchini", "courgette"]),
+        ("rocket", ["rocket leaves", "arugula", "rocket"]),
+        ("beetroot", ["beetroots", "beets", "beet", "beetroot"]),
+        ("chickpea", ["chickpeas", "chick peas", "garbanzo beans", "garbanzos", "chickpea"]),
+        ("swede", ["swedes", "rutabaga", "swede"]),
+        ("mangetout", ["snow peas", "sugar snap peas", "mangetout"]),
+        // Fresh coriander is cilantro, but the ground seed is a different ingredient altogether. It is
+        // listed first so it matches first, instead of collapsing a spice into the herb.
+        ("coriander seed", ["ground coriander", "coriander seeds", "coriander powder", "coriander seed"]),
+        ("coriander", ["fresh coriander", "coriander leaves", "coriander leaf", "cilantro", "coriander"]),
         ("avocado", ["avocados", "avocado"]),
         ("lemon", ["lemon juice", "lemon zest", "lemons", "lemon"]),
         ("lime", ["lime juice", "lime zest", "limes", "lime"]),
@@ -52,6 +69,11 @@ public sealed partial class IngredientNormalizer
         ("yogurt", ["greek yoghurt", "greek yogurt", "yoghurt", "yogurt"]),
         ("mayonnaise", ["mayonnaise", "mayo"]),
         ("cheese", ["cheese"]),
+        // The store-cupboard half of the same split, for the same reason.
+        ("double cream", ["heavy whipping cream", "heavy cream", "double cream"]),
+        ("plain flour", ["all purpose flour", "plain flour"]),
+        ("caster sugar", ["superfine sugar", "caster sugar"]),
+        ("bicarbonate of soda", ["baking soda", "bicarbonate of soda", "bicarb"]),
         ("salt", ["sea salt", "kosher salt", "table salt", "salt"]),
         ("water", ["boiling water", "cold water", "warm water", "water"])
     ];
