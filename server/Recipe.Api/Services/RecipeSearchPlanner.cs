@@ -83,7 +83,7 @@ public static class RecipeSearchPlanner
             // The cuisine's own dishes first, best fit for this basket leading. Naming the dish is what
             // finds the dish: "tacos beef pepper recipe" returns tacos, where "Mexican beef pepper stew
             // recipe" returns whatever happens to have Mexican in its title.
-            foreach (var dish in CuisineDishes.For(cuisine, concepts))
+            foreach (var dish in CuisineDishes.For(cuisine, concepts, request.MealType))
             {
                 Add(queries, Compose(CuisineWordFor(dish), dish.Name, SubjectFor(dish, subject, normalizer), "recipe", qualifiers));
             }
@@ -102,19 +102,35 @@ public static class RecipeSearchPlanner
             // dish so the query asks for a recipe rather than for a magazine round-up.
             foreach (var option in Cuisines)
             {
-                var dish = CuisineDishes.For(option, concepts).FirstOrDefault();
+                var dish = CuisineDishes.For(option, concepts, request.MealType).FirstOrDefault();
                 Add(queries, Compose(option, dish?.Name ?? string.Empty, "recipe", qualifiers));
             }
         }
         else
         {
             // Ingredients but no cuisine. The plain query first, because it is the one most likely to find
-            // the obvious dish, then the same ingredients pushed into different kitchens -- each asking for
-            // that kitchen's best fit for this basket rather than for the kitchen's name.
+            // the obvious dish.
             Add(queries, Compose(string.Empty, subject, "recipe", qualifiers));
+
+            // An ingredient that belongs to a kitchen is asked about in that kitchen, on its own.
+            //
+            // Measured on 25 November 2026, a basket of nopales, plantain, gochujang and samphire produced
+            // "miso soup nopale plantain gochujang recipe" and five more like it: every ingredient pasted
+            // into every cuisine's default dish. Those four come from four different kitchens and no
+            // publisher has ever written a page about all of them. Asked separately -- nopales as Mexican,
+            // gochujang as Korean, plantain as Caribbean -- each one reaches pages that exist.
+            foreach (var (ingredient, kitchen) in SignaturePairs(request))
+            {
+                var dish = CuisineDishes.For(kitchen, concepts, request.MealType).FirstOrDefault();
+                Add(queries, dish is null
+                    ? Compose(kitchen, ingredient, "recipe", qualifiers)
+                    : Compose(CuisineWordFor(dish, kitchen), dish.Name, ingredient, "recipe", qualifiers));
+            }
+
+            // Then the whole basket pushed into each kitchen, as before.
             foreach (var option in Cuisines)
             {
-                var dish = CuisineDishes.For(option, concepts).FirstOrDefault();
+                var dish = CuisineDishes.For(option, concepts, request.MealType).FirstOrDefault();
                 Add(queries, dish is null
                     ? Compose(option, subject, "recipe", qualifiers)
                     : Compose(CuisineWordFor(dish, option), dish.Name, SubjectFor(dish, subject, normalizer), "recipe", qualifiers));
@@ -235,6 +251,30 @@ public static class RecipeSearchPlanner
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Each ingredient that belongs to a kitchen, paired with it, most telling ingredient first.
+    ///
+    /// The ingredient is passed on in the customer's own words rather than as a concept, because an
+    /// ingredient the table recognises by name is often one the normalizer does not: "gochujang" is in the
+    /// knowledge base and not in the concept table, and it is what a publisher titles the page with.
+    /// </summary>
+    private static IEnumerable<(string Ingredient, string Cuisine)> SignaturePairs(GenerateRecipesRequest request)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in request.Ingredients
+                     .Select(item => item.Name?.Trim() ?? string.Empty)
+                     .Where(name => name.Length > 0))
+        {
+            foreach (var cuisine in CuisineDishes.CuisinesForIngredient(name).Take(2))
+            {
+                if (seen.Add($"{name}|{cuisine}"))
+                {
+                    yield return (name, cuisine);
+                }
+            }
+        }
     }
 
     /// <summary>The basket's ingredients as normalizer concepts, for scoring which dishes fit.</summary>

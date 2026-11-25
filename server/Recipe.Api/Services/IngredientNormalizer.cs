@@ -71,6 +71,13 @@ public sealed partial class IngredientNormalizer
         ("bean", ["kidney beans", "black beans", "cannellini beans", "butter beans", "borlotti beans",
             "haricot beans", "baked beans", "mixed beans", "beans", "bean"]),
         ("lentil", ["red lentils", "green lentils", "puy lentils", "brown lentils", "lentils", "lentil"]),
+        // Found by the consistency test over the cuisine dish table: these were named as dish ingredients
+        // while the concept table had never heard of them, so no basket could ever match them.
+        ("plantain", ["green plantains", "ripe plantains", "green plantain", "ripe plantain",
+            "plantains", "plantain"]),
+        ("cabbage", ["white cabbage", "red cabbage", "savoy cabbage", "chinese cabbage", "napa cabbage",
+            "cabbages", "cabbage"]),
+        ("tofu", ["firm tofu", "silken tofu", "extra firm tofu", "tofu"]),
         ("avocado", ["avocados", "avocado"]),
         ("lemon", ["lemon juice", "lemon zest", "lemons", "lemon"]),
         ("lime", ["lime juice", "lime zest", "limes", "lime"]),
@@ -247,9 +254,20 @@ public sealed partial class IngredientNormalizer
         int variation = 0,
         string? mainIngredient = null)
     {
+        // An ingredient the table knows is searched for by its canonical name, because "chicken" finds more
+        // pages than "chicken thighs". One it does not know is searched for in the customer's own words.
+        //
+        // Measured on 25 November 2026: Normalize("Nopales") returns "nopale", because the fallback
+        // singulariser strips a trailing s from any word, and "nopale" is not a word anybody publishes a
+        // recipe under. The concept is still what matching and scoring use; only the search term changes.
         var canonical = ingredients
             .Where(item => !string.IsNullOrWhiteSpace(item.Name))
-            .Select((item, index) => new SearchIngredient(Normalize(item.Name), index))
+            .Select((item, index) =>
+            {
+                var concept = Normalize(item.Name);
+                var searchable = KnownConcepts.Contains(concept) ? concept : item.Name.Trim();
+                return new SearchIngredient(concept, searchable, index);
+            })
             .Where(item => item.Name.Length > 0)
             .GroupBy(item => item.Name, StringComparer.Ordinal)
             .Select(group => group.OrderBy(item => item.Index).First())
@@ -304,7 +322,7 @@ public sealed partial class IngredientNormalizer
                 .Take(limit - result.Count));
         }
 
-        return result.Select(item => item.Name).ToList();
+        return result.Select(item => item.Searchable).ToList();
     }
 
     private static bool ContainsPhrase(string text, string phrase) =>
@@ -344,7 +362,9 @@ public sealed partial class IngredientNormalizer
     [GeneratedRegex("\\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespaceRegex();
 
-    private sealed record SearchIngredient(string Name, int Index);
+    /// <param name="Name">The canonical concept, for matching and grouping.</param>
+    /// <param name="Searchable">What to put in a query: the concept, or the customer's own words.</param>
+    private sealed record SearchIngredient(string Name, string Searchable, int Index);
 }
 
 public sealed record RecipeMatch(
