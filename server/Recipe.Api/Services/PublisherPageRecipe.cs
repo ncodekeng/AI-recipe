@@ -21,4 +21,10 @@ public sealed record PublisherPageRecipe(
     /// schema.org recipeCuisine, where the publisher states it. Their own word for what they cooked, and
     /// absent far more often than not -- which says nothing about the recipe either way.
     /// </summary>
-    string? Cuisine = null);
+    string? Cuisine = null,
+    /// <summary>
+    /// schema.org recipeCategory, where the publisher states it: "Main Course", "Side Dish", "Sauce",
+    /// "Dessert". Their own word for what kind of thing they published, which is how a complete dinner is
+    /// told from a filling or a condiment without reading anything into the title.
+    /// </summary>
+    string? Category = null);

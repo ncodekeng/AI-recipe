@@ -224,6 +224,17 @@ public sealed partial class IngredientNormalizer
     /// </summary>
     public bool IsCarrierBase(string ingredient) => HasAnyPhrase(Normalize(ingredient), BaseSearchTerms);
 
+    /// <summary>
+    /// How much an ingredient defines a dish, for weighting how much of a basket a recipe really uses.
+    ///
+    /// Counting basket items equally treats the tortillas and the onion as the same contribution, and they
+    /// are not: the tortillas decide what the dinner IS, and almost every savoury recipe uses an onion. The
+    /// weights are the ones the search focus already ranks by -- a staple base highest, then produce and
+    /// proteins, then dairy, then condiments and seasonings -- so there is one notion of what matters in a
+    /// basket rather than two.
+    /// </summary>
+    public int DistinctivenessWeight(string ingredient) => RecipeSearchPriority(Normalize(ingredient));
+
     public IReadOnlyList<string> SelectRecipeSearchFocus(
         IEnumerable<IngredientInput> ingredients,
         int maxCount,
@@ -347,5 +358,14 @@ public sealed record RecipeMatch(
     /// whole basket. This is the number the ranking leads on.
     /// </summary>
     double BasketUtilisation,
+    /// <summary>
+    /// Whether this is a whole dish built on something the customer has, in [0,1].
+    ///
+    /// 0.6 of it is using one of the basket's staple bases where the basket has one; 0.4 is the publisher
+    /// calling it a main course rather than a sauce or a side, where the customer asked for a meal. Both
+    /// halves default to full credit, because neither missing metadata nor a basket without a base says
+    /// anything against a recipe. This is what separates beef tacos from taco meat.
+    /// </summary>
+    double DishSuitability,
     bool MainIngredientPresent,
     string MatchReason);

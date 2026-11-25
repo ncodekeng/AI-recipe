@@ -207,7 +207,8 @@ public sealed class RecipeCatalogService(
                 request.Ingredients,
                 request.RecentlyShownRecipeIds,
                 request.OnlyUseAvailableIngredients,
-                request.MainIngredient)
+                request.MainIngredient,
+                request.MealType)
             .ToList();
         var recipes = ranked
             .Take(Math.Clamp(request.MaxRecipes, 3, 5))

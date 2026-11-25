@@ -168,7 +168,8 @@ public sealed class PublisherRecipePageClient
                     recipe.Servings,
                     recipe.CaloriesPerServing,
                     recipe.ImageUrl,
-                    recipe.Cuisine))
+                    recipe.Cuisine,
+                    recipe.Category))
                 .ToList();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -789,7 +790,8 @@ public sealed class PublisherRecipePageClient
             ReadServings(recipe),
             ReadCalories(recipe),
             ReadImageUrl(recipe, sourceUri),
-            ReadCuisine(recipe));
+            ReadCuisine(recipe),
+            ReadFirstString(recipe, "recipeCategory"));
     }
 
     /// <summary>
@@ -802,9 +804,17 @@ public sealed class PublisherRecipePageClient
     /// A page may give several ("Mexican", "Tex-Mex"), so ReadStringArray handles both a bare string and an
     /// array, and the first usable value is taken.
     /// </summary>
-    private static string? ReadCuisine(JsonElement recipe)
+    private static string? ReadCuisine(JsonElement recipe) => ReadFirstString(recipe, "recipeCuisine");
+
+    /// <summary>
+    /// The first usable value of a schema.org field that may be a string or an array.
+    ///
+    /// recipeCuisine and recipeCategory are both routinely written either way, and a page may give several
+    /// ("Mexican", "Tex-Mex" / "Main Course", "Dinner").
+    /// </summary>
+    private static string? ReadFirstString(JsonElement recipe, string propertyName)
     {
-        foreach (var value in ReadStringArray(recipe, "recipeCuisine"))
+        foreach (var value in ReadStringArray(recipe, propertyName))
         {
             var cleaned = CleanText(value);
             if (cleaned.Length is > 0 and <= 60)
@@ -1184,7 +1194,8 @@ public sealed class PublisherRecipePageClient
         int? Servings,
         int? CaloriesPerServing,
         string? ImageUrl,
-        string? Cuisine = null);
+        string? Cuisine = null,
+        string? Category = null);
 
     private sealed record CachedPublisherPage(IReadOnlyList<PublisherRecipeData> Recipes);
 

@@ -50,9 +50,10 @@ public sealed class RecipeRankingServiceTests
                 new RecipeIngredient("to taste", "salt")
             ]);
 
-        // 85: everything the recipe needs is in the kitchen, but it leaves the bread unused, and basket
-        // utilisation now carries the heavier weight. Nothing is missing, which is the point of the test.
-        Assert.Equal(85, match.MatchPercentage);
+        // 67: everything the recipe needs is in the kitchen, so nothing is missing -- which is the point of
+        // the test -- but it leaves the bread unused. The bread is the basket's staple base, so the dish
+        // suitability signal counts this as a dinner that does not build on what the customer has.
+        Assert.Equal(67, match.MatchPercentage);
         Assert.Empty(match.MissingIngredients);
     }
 
@@ -112,10 +113,9 @@ public sealed class RecipeRankingServiceTests
         Assert.Equal(1, match.AvailableIngredientCount);
         Assert.Equal(1d, match.Coverage);
         Assert.Equal(0.5d, match.Availability);
-        // Coverage 1.0 at 0.60 plus availability 0.5 at 0.40. It was 70 while completeness carried the
-        // heavier weight; the customer's whole basket is used here, so the higher number is the right way
-        // round. See CalculateMatch for why the weights were swapped on 25 November 2026.
-        Assert.Equal(80, match.MatchPercentage);
+        // Utilisation 1.0 at 0.45, availability 0.5 at 0.30, suitability 1.0 at 0.25. The whole basket is
+        // used, nothing about the dish is in doubt, and half the recipe needs buying. See CalculateMatch.
+        Assert.Equal(85, match.MatchPercentage);
         var missing = Assert.Single(match.MissingIngredients);
         Assert.Equal("Garlic", missing.Name);
         Assert.Equal(2, missing.Quantity);
@@ -144,9 +144,8 @@ public sealed class RecipeRankingServiceTests
         // the stuffed peppers using all three scores only 10 higher, which is inside the band where a
         // zero-shopping recipe is still allowed to lead.
         Assert.Equal("Chicken and onion", ranked[0].Title);
-        // 80, not 100: it ignores the customer's peppers. The old number divided by the recipe's own length,
-        // so any recipe short enough to use everything it could read as a perfect match.
-        Assert.Equal(80, ranked[0].IngredientMatch);
+        // 85: it uses two of the three basket items, needs no shopping, and nothing marks it a component.
+        Assert.Equal(85, ranked[0].IngredientMatch);
         Assert.Empty(ranked[0].MissingIngredients!);
         Assert.Equal("feta cheese", Assert.Single(ranked[1].MissingIngredients!).Name);
     }
@@ -293,8 +292,9 @@ public sealed class RecipeRankingServiceTests
             mainIngredient: "chicken breast");
 
         Assert.Equal(chicken.Id, Assert.Single(ranked).Id);
-        // 80, because it uses the chicken and the onion and leaves the potato alone.
-        Assert.Contains("80% match", ranked[0].MatchReason);
+        // 66: it uses the chicken and the onion, and leaves the potato alone. The potato is the basket's
+        // staple base, so the dish suitability signal docks it for not building on what the customer has.
+        Assert.Contains("66% match", ranked[0].MatchReason);
     }
 
     [Fact]
@@ -328,10 +328,10 @@ public sealed class RecipeRankingServiceTests
         Assert.Contains("\"imageRightsStatus\":\"VerifiedCommercial\"", json);
         Assert.Contains("\"availableIngredients\"", json);
         Assert.Contains("\"missingIngredients\"", json);
-        // 80, not 70, since basket utilisation began outweighing recipe completeness. The point of this
-        // test is that the number and its reason reach the wire together, whatever the number is.
-        Assert.Contains("\"ingredientMatch\":80", json);
-        Assert.Contains("\"matchReason\":\"80% match", json);
+        // The point of this test is that the number and its reason reach the wire together, whatever the
+        // number is: utilisation 1.0 at 0.45, availability 0.5 at 0.30, suitability 1.0 at 0.25.
+        Assert.Contains("\"ingredientMatch\":85", json);
+        Assert.Contains("\"matchReason\":\"85% match", json);
         Assert.Contains("\"imageProvider\":\"Wikimedia Commons\"", json);
         Assert.Contains("\"imageVerified\":true", json);
     }

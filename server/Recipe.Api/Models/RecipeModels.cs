@@ -112,7 +112,12 @@ public sealed record RecipeSuggestion(
     int? PrepMinutes = null,
     int? CookMinutes = null,
     bool PublisherPageVerified = false,
-    [property: JsonIgnore] string? PublisherImageCandidateUrl = null);
+    [property: JsonIgnore] string? PublisherImageCandidateUrl = null,
+    /// <summary>
+    /// The publisher's own schema.org recipeCategory, kept for ranking and not sent to the app. It is how a
+    /// whole dinner is told from a filling or a condiment without reading anything into the title.
+    /// </summary>
+    [property: JsonIgnore] string? PublisherCategory = null);
 
 public static class RecipeDirectionsKinds
 {

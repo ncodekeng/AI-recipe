@@ -7,7 +7,9 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
     public RecipeMatch CalculateMatch(
         IEnumerable<IngredientInput> pantry,
         IEnumerable<RecipeIngredient> requiredIngredients,
-        string? mainIngredient = null)
+        string? mainIngredient = null,
+        string? publisherCategory = null,
+        string? mealType = null)
     {
         var pantryNames = pantry
             .Where(item => !string.IsNullOrWhiteSpace(item.Name))
@@ -73,14 +75,50 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
         //
         // The main ingredient needs no weight here: a recipe without it is dropped outright above, which is
         // the strongest preference the ranking can express.
-        // How much of the customer's basket the recipe uses, not capped by how short the recipe is.
-        var basketUtilisation = relevantPantryCount == 0
+        // How much of the customer's basket the recipe uses, weighted by how much each ingredient defines a
+        // dish. Counting them equally makes the tortillas and the onion the same contribution; the
+        // tortillas decide what the dinner is and nearly every savoury recipe uses an onion.
+        var basketWeights = pantryNames
+            .Where(name => !normalizer.IsPantryStaple(name))
+            .GroupBy(normalizer.Normalize, StringComparer.Ordinal)
+            .Where(group => group.Key.Length > 0)
+            .ToDictionary(group => group.Key, group => normalizer.DistinctivenessWeight(group.First()));
+
+        var usedConcepts = available
+            .Select(ingredient => normalizer.Normalize(MatchText(ingredient)))
+            .ToHashSet(StringComparer.Ordinal);
+        var usedWeight = basketWeights
+            .Where(entry => usedConcepts.Contains(entry.Key) ||
+                            pantryNames.Any(name =>
+                                normalizer.Normalize(name).Equals(entry.Key, StringComparison.Ordinal) &&
+                                available.Any(ingredient => normalizer.Matches(name, MatchText(ingredient)))))
+            .Sum(entry => entry.Value);
+        var totalWeight = basketWeights.Sum(entry => entry.Value);
+        var basketUtilisation = totalWeight == 0
             ? 1d
-            : Math.Min(1d, (double)available.Count / relevantPantryCount);
+            : Math.Min(1d, (double)usedWeight / totalWeight);
+
+        // Whether this is a dinner or a part of one. Both halves default to full credit, because neither
+        // absent metadata nor a basket without a staple base is evidence against a recipe.
+        var carrierConcepts = basketWeights.Keys
+            .Where(concept => normalizer.IsCarrierBase(concept))
+            .ToList();
+        var usesACarrier = carrierConcepts.Count == 0 ||
+                           carrierConcepts.Any(concept => usedConcepts.Contains(concept));
+
+        var course = RecipeCourses.Classify(publisherCategory);
+        var wholeDishWanted = RecipeCourses.WantsAWholeDish(mealType);
+        var isAWholeDish = !wholeDishWanted ||
+                           course is RecipeCourse.Main or RecipeCourse.Unknown;
+
+        // A dish, built on something the customer has. For a basket of beef, tortillas and peppers that
+        // separates beef tacos and quesadillas, which use the tortillas, from taco meat, which is a filling,
+        // and from taco stuffed peppers, which is a dinner that leaves the tortillas in the cupboard.
+        var suitability = (usesACarrier ? 0.6d : 0d) + (isAWholeDish ? 0.4d : 0d);
 
         var matchPercentage = mainIngredientPresent
             ? (int)Math.Round(
-                (basketUtilisation * 0.60d + availability * 0.40d) * 100d,
+                (basketUtilisation * 0.45d + availability * 0.30d + suitability * 0.25d) * 100d,
                 MidpointRounding.AwayFromZero)
             : 0;
         return new RecipeMatch(
@@ -92,6 +130,7 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
             coverage,
             availability,
             basketUtilisation,
+            suitability,
             mainIngredientPresent,
             BuildMatchReason(matchPercentage, available, missing, mainIngredientPresent));
     }
@@ -119,13 +158,19 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
         IEnumerable<IngredientInput> pantry,
         IEnumerable<Guid>? recentlyShownRecipeIds = null,
         bool onlyUseAvailableIngredients = false,
-        string? mainIngredient = null)
+        string? mainIngredient = null,
+        string? mealType = null)
     {
         var recentIds = recentlyShownRecipeIds?.ToHashSet() ?? [];
         var candidates = recipes
             .Select((recipe, providerIndex) =>
             {
-                var match = CalculateMatch(pantry, recipe.Ingredients, mainIngredient);
+                var match = CalculateMatch(
+                    pantry,
+                    recipe.Ingredients,
+                    mainIngredient,
+                    recipe.PublisherCategory,
+                    mealType);
                 var enriched = recipe with
                 {
                     IngredientMatch = match.MatchPercentage,

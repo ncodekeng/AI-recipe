@@ -348,7 +348,8 @@ public sealed class GoogleRecipeSearchClient(
             CookMinutes: page.CookMinutes,
             // The page was fetched and read, which is the whole basis for this recipe existing.
             PublisherPageVerified: true,
-            PublisherImageCandidateUrl: page.ImageUrl);
+            PublisherImageCandidateUrl: page.ImageUrl,
+            PublisherCategory: page.Category);
     }
 
     /// <summary>
