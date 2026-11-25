@@ -22,9 +22,10 @@ namespace Recipe.Api.Services;
 /// it does not. Nothing is asked to invent a URL, and no recipe is claimed without the page being read.
 ///
 /// What is deliberately not here is the cooking method. It is the publisher's own writing, so it is never
-/// copied; recipes come back with no steps and DirectionsKind=Unavailable, and writing the method is a
-/// separate step. That is why this stays behind RecipeCatalog:Provider and AzureWebSearch remains the
-/// default: this half is faster and more accurate, and it is not a whole product on its own yet.
+/// copied: recipes leave here with no steps at all. CookingGuideWriter then writes PLATE's own guide for the
+/// same dish, after ranking, so the method a customer reads is ours and the facts around it are the
+/// publisher's. Keeping the two apart is also what lets a dish survive a failed guide: the ingredients,
+/// timings and photo are already real, so the recipe is still worth returning without one.
 /// </summary>
 public sealed class GoogleRecipeSearchClient(
     IRecipeDiscoveryProvider discovery,
@@ -87,8 +88,9 @@ public sealed class GoogleRecipeSearchClient(
         return new RecipeGenerationResponse(
             collected.Recipes,
             "Google Search",
-            "Ingredients and timings are read from each publisher's own recipe data. Check the source page "
-                + "before cooking, and treat allergy information as unconfirmed.");
+            "Ingredients and timings are read from each publisher's own recipe data, and the cooking guide is "
+                + "PLATE's own. Check the source page before cooking, and treat allergy information as "
+                + "unconfirmed.");
     }
 
     /// <summary>

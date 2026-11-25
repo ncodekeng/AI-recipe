@@ -402,6 +402,13 @@ public sealed class RecipeCatalogServiceTests
                 environment,
                 photoCache,
                 NullLogger<CommercialRecipeImageClient>.Instance),
+            // The guide writer is handed a handler that refuses on purpose. These tests are about the
+            // provider, safety and ranking paths, and a guide that cannot be written must leave their
+            // recipes exactly as they were.
+            new CookingGuideWriter(
+                new HttpClient(new JsonHandler("Not found", HttpStatusCode.NotFound)),
+                foodAiOptions,
+                NullLogger<CookingGuideWriter>.Instance),
             new RecipeSafetyValidator(),
             new RecipeRankingService(normalizer),
             normalizer,

@@ -10,6 +10,7 @@ public sealed class RecipeCatalogService(
     EdamamRecipeClient edamam,
     PublisherRecipePageClient publisherPages,
     CommercialRecipeImageClient commercialImages,
+    CookingGuideWriter cookingGuides,
     RecipeSafetyValidator safetyValidator,
     RecipeRankingService ranking,
     IngredientNormalizer normalizer,
@@ -93,25 +94,32 @@ public sealed class RecipeCatalogService(
             stage.Restart();
             var verifiedResponse = safetyValidator.Validate(enrichedResponse, effectiveRequest);
             var rankedResponse = RankAndLimit(verifiedResponse, effectiveRequest);
-            cache.Store(effectiveRequest, rankedResponse);
             var validateAndRankMs = stage.ElapsedMilliseconds;
 
             stage.Restart();
+            // After ranking, so nothing is paid for a recipe the customer never sees, and before the
+            // cache is stored, so a cached search is never served back without a method.
+            var guidedResponse = await cookingGuides.AddCookingGuidesAsync(rankedResponse, cancellationToken);
+            cache.Store(effectiveRequest, guidedResponse);
+            var guidesMs = stage.ElapsedMilliseconds;
+
+            stage.Restart();
             var result = await ApplyCommercialImagesAsync(
-                rankedResponse,
+                guidedResponse,
                 effectiveRequest.ShowPhotos,
                 cancellationToken);
             var imagesMs = stage.ElapsedMilliseconds;
 
             logger.LogInformation(
                 "SEARCH TIMING total={TotalMs}ms discovery={DiscoveryMs}ms safety={SafetyMs}ms "
-                + "enrichment={EnrichmentMs}ms validateRank={ValidateRankMs}ms images={ImagesMs}ms "
+                + "enrichment={EnrichmentMs}ms validateRank={ValidateRankMs}ms guides={GuidesMs}ms images={ImagesMs}ms "
                 + "recipes={RecipeCount} photos={ShowPhotos}",
                 total.ElapsedMilliseconds,
                 discoveryMs,
                 safetyMs,
                 enrichmentMs,
                 validateAndRankMs,
+                guidesMs,
                 imagesMs,
                 result.Recipes.Count,
                 effectiveRequest.ShowPhotos);

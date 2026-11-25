@@ -58,6 +58,13 @@ builder.Services.AddHttpClient<AzureGroundedRecipeClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
 });
+// Writing the cooking guide: one call, no web_search tool, so it is a fraction of the old search call.
+// The timeout is its own deadline rather than the 90 seconds the grounded client needs, because a slow
+// guide is dropped and the recipes are still returned without one.
+builder.Services.AddHttpClient<CookingGuideWriter>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(40);
+});
 // Discovery through Serper. A short timeout on purpose: this step exists to be fast, and a slow search
 // provider should be dropped and worked around rather than allowed to stretch the whole request. The
 // per-query deadline inside the provider is shorter still.
