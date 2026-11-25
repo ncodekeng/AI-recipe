@@ -164,6 +164,111 @@ public sealed class GoogleRecipeSearchClientTests
         Assert.Contains("will not invent", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    // ---- Show more results ------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_second_batch_returns_dinners_the_first_batch_did_not()
+    {
+        var pages = EightDishes();
+        var first = await Run(pages.Keys, pages, Request("beef brisket"));
+        Assert.Equal(4, first.Recipes.Count);
+
+        var second = await Run(pages.Keys, pages, ShowMore(first));
+
+        Assert.Equal(4, second.Recipes.Count);
+        Assert.Empty(second.Recipes.Select(r => r.Id).Intersect(first.Recipes.Select(r => r.Id)));
+        Assert.Empty(second.Recipes.Select(r => r.SourceUrl).Intersect(first.Recipes.Select(r => r.SourceUrl)));
+    }
+
+    [Fact]
+    public async Task A_page_already_shown_is_not_fetched_a_second_time()
+    {
+        // A recipe's id is the hash of its source URL, so an already-seen candidate is recognised straight
+        // from the search result. The saving is a whole page read, not a parse.
+        var pages = EightDishes();
+        var first = await Run(pages.Keys, pages, Request("beef brisket"));
+
+        var fetched = new List<string>();
+        await Run(pages.Keys, pages, ShowMore(first), fetched);
+
+        foreach (var url in first.Recipes.Select(recipe => recipe.SourceUrl))
+        {
+            Assert.DoesNotContain(url, fetched);
+        }
+    }
+
+    [Fact]
+    public async Task A_later_batch_asks_different_questions()
+    {
+        // The ids alone would only empty the batch: the planner would return the same four queries,
+        // discovery the same pages, and every one of them would then be filtered out as already seen.
+        var pages = EightDishes();
+        var firstQueries = new List<string>();
+        var first = await Run(pages.Keys, pages, Request("beef brisket"), queriesSeen: firstQueries);
+
+        var laterQueries = new List<string>();
+        await Run(pages.Keys, pages, ShowMore(first), queriesSeen: laterQueries);
+
+        Assert.NotEmpty(firstQueries);
+        Assert.NotEmpty(laterQueries);
+        Assert.Empty(firstQueries.Intersect(laterQueries, StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Running_out_of_results_is_an_empty_batch_rather_than_an_error()
+    {
+        // Exhausting the list is the ordinary end of it. The app reads an empty batch as "that is everything
+        // we could verify for this search"; an exception here would show the customer an error instead.
+        var pages = FourDishes();
+        var first = await Run(pages.Keys, pages, Request("beef brisket"));
+        Assert.Equal(4, first.Recipes.Count);
+
+        var second = await Run(pages.Keys, pages, ShowMore(first));
+
+        Assert.Empty(second.Recipes);
+    }
+
+    [Fact]
+    public async Task A_first_search_that_finds_nothing_still_refuses()
+    {
+        // The empty batch above is only right for a continuation. A first search with nothing to show must
+        // still say so rather than return an empty list that reads as "no recipes exist for this".
+        var pages = new Dictionary<string, string>
+        {
+            ["https://a.test/1"] = "<html><body>no recipe here</body></html>",
+        };
+
+        await Assert.ThrowsAsync<RecipeSafetyException>(
+            () => Run(pages.Keys, pages, Request("beef brisket")));
+    }
+
+    private static GenerateRecipesRequest ShowMore(RecipeGenerationResponse previous) =>
+        Request("beef brisket") with
+        {
+            RecentlyShownRecipeIds = previous.Recipes.Select(recipe => recipe.Id).ToList(),
+        };
+
+    /// <summary>Eight genuinely different dinners, so a second batch has somewhere to come from.</summary>
+    private static Dictionary<string, string> EightDishes() => new()
+    {
+        ["https://a.test/1"] = RecipePage("Beef Brisket Curry", Brisket),
+        ["https://b.test/2"] = RecipePage("Beef Brisket Stew", Brisket),
+        ["https://c.test/3"] = RecipePage("Beef Brisket Pie", Brisket),
+        ["https://d.test/4"] = RecipePage("Beef Brisket Ramen", Brisket),
+        ["https://e.test/5"] = RecipePage("Beef Brisket Tacos", Brisket),
+        ["https://f.test/6"] = RecipePage("Beef Brisket Lasagne", Brisket),
+        ["https://g.test/7"] = RecipePage("Beef Brisket Risotto", Brisket),
+        ["https://h.test/8"] = RecipePage("Beef Brisket Biryani", Brisket),
+    };
+
+    private static Dictionary<string, string> FourDishes() => new()
+    {
+        ["https://a.test/1"] = RecipePage("Beef Brisket Curry", Brisket),
+        ["https://b.test/2"] = RecipePage("Beef Brisket Stew", Brisket),
+        ["https://c.test/3"] = RecipePage("Beef Brisket Pie", Brisket),
+        ["https://d.test/4"] = RecipePage("Beef Brisket Ramen", Brisket),
+    };
+
     private static readonly string[] Brisket =
         ["1 kg beef brisket", "2 onions", "500 ml beef stock", "1 tbsp tomato puree"];
 
@@ -172,7 +277,8 @@ public sealed class GoogleRecipeSearchClientTests
         IReadOnlyDictionary<string, string> pages,
         GenerateRecipesRequest request,
         List<string>? fetched = null,
-        string listingTitle = "")
+        string listingTitle = "",
+        List<string>? queriesSeen = null)
     {
         var candidates = urls
             .Select(url => new RecipeCandidate(
@@ -206,9 +312,8 @@ public sealed class GoogleRecipeSearchClientTests
             NullLogger<PublisherRecipePageClient>.Instance);
 
         var client = new GoogleRecipeSearchClient(
-            new StubDiscovery(candidates),
+            new StubDiscovery(candidates, queriesSeen),
             publisherPages,
-            new IngredientNormalizer(),
             options,
             NullLogger<GoogleRecipeSearchClient>.Instance);
 
@@ -243,7 +348,9 @@ public sealed class GoogleRecipeSearchClientTests
             """;
     }
 
-    private sealed class StubDiscovery(IReadOnlyList<RecipeCandidate> candidates) : IRecipeDiscoveryProvider
+    private sealed class StubDiscovery(
+        IReadOnlyList<RecipeCandidate> candidates,
+        List<string>? queriesSeen = null) : IRecipeDiscoveryProvider
     {
         public string Name => "StubSearch";
 
@@ -252,7 +359,11 @@ public sealed class GoogleRecipeSearchClientTests
         public Task<IReadOnlyList<RecipeCandidate>> DiscoverAsync(
             IReadOnlyList<string> queries,
             int resultsPerQuery,
-            CancellationToken cancellationToken) => Task.FromResult(candidates);
+            CancellationToken cancellationToken)
+        {
+            queriesSeen?.AddRange(queries);
+            return Task.FromResult(candidates);
+        }
     }
 
     /// <summary>Serves a different page per URL, and records which ones were actually asked for.</summary>

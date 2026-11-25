@@ -48,7 +48,13 @@ public static class RecipeSearchPlanner
     /// The queries to run, most promising first. Always at least one, never more than <paramref name="maxQueries"/>,
     /// and never duplicated.
     /// </summary>
-    public static IReadOnlyList<string> Plan(GenerateRecipesRequest request, int maxQueries = 4)
+    /// <param name="skip">
+    /// How many of the planned queries to pass over, so "Show more results" reaches pages the first batch
+    /// never looked at. The plan is longer than one batch on purpose -- fifteen cuisines, fifteen signature
+    /// dishes -- and without this a second tap re-ran the same four queries, found the same pages and had
+    /// nothing new to offer. Returns empty once the plan is exhausted, which is the honest end of the list.
+    /// </param>
+    public static IReadOnlyList<string> Plan(GenerateRecipesRequest request, int maxQueries = 4, int skip = 0)
     {
         var limit = Math.Clamp(maxQueries, 1, 8);
         var queries = new List<string>();
@@ -64,7 +70,7 @@ public static class RecipeSearchPlanner
             // instead, so the batch stays inside the cuisine the customer asked for.
             foreach (var form in Forms)
             {
-                Add(queries, Compose(cuisine, subject, form, qualifiers), limit);
+                Add(queries, Compose(cuisine, subject, form, qualifiers));
             }
         }
         else if (subject.Length == 0)
@@ -73,17 +79,17 @@ public static class RecipeSearchPlanner
             // dish so the query asks for a recipe rather than for a magazine round-up.
             foreach (var (option, dish) in SignatureDishes)
             {
-                Add(queries, Compose(option, dish, "recipe", qualifiers), limit);
+                Add(queries, Compose(option, dish, "recipe", qualifiers));
             }
         }
         else
         {
             // Ingredients but no cuisine. The plain query first, because it is the one most likely to
             // find the obvious dish, then the same ingredients pushed into different kitchens.
-            Add(queries, Compose(string.Empty, subject, "recipe", qualifiers), limit);
+            Add(queries, Compose(string.Empty, subject, "recipe", qualifiers));
             foreach (var option in Cuisines)
             {
-                Add(queries, Compose(option, subject, "recipe", qualifiers), limit);
+                Add(queries, Compose(option, subject, "recipe", qualifiers));
             }
         }
 
@@ -92,15 +98,17 @@ public static class RecipeSearchPlanner
         var main = request.MainIngredient.Trim();
         if (main.Length > 0 && !string.Equals(main, subject, StringComparison.OrdinalIgnoreCase))
         {
-            Add(queries, Compose(surprise ? string.Empty : cuisine, main, "recipe", qualifiers), limit);
+            Add(queries, Compose(surprise ? string.Empty : cuisine, main, "recipe", qualifiers));
         }
 
         if (queries.Count == 0)
         {
-            Add(queries, "easy dinner recipe", limit);
+            Add(queries, "easy dinner recipe");
         }
 
-        return queries;
+        // The whole plan is built first and sliced here, so one batch is a window onto it rather than the
+        // only thing it could produce. With skip at zero this is exactly the first batch it always was.
+        return queries.Skip(Math.Max(0, skip)).Take(limit).ToList();
     }
 
     /// <summary>What the dish is about: the main ingredient, or the strongest few from the basket.</summary>
@@ -191,10 +199,10 @@ public static class RecipeSearchPlanner
         return builder.ToString();
     }
 
-    private static void Add(List<string> queries, string query, int limit)
+    private static void Add(List<string> queries, string query)
     {
         var value = query.Trim();
-        if (queries.Count >= limit || value.Length == 0)
+        if (value.Length == 0)
         {
             return;
         }

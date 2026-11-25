@@ -129,6 +129,40 @@ public sealed class RecipeSearchPlannerTests
                 $"too many ingredients in one query: {query}"));
     }
 
+    [Fact]
+    public void A_later_slice_of_the_plan_asks_different_questions()
+    {
+        // "Show more results" depends on this. The plan is far longer than one batch -- fifteen cuisines,
+        // fifteen signature dishes -- and a second tap that re-ran the first four queries would find the
+        // same pages and have nothing new to offer.
+        var request = Request(main: "beef brisket");
+
+        var first = RecipeSearchPlanner.Plan(request, maxQueries: 4);
+        var later = RecipeSearchPlanner.Plan(request, maxQueries: 4, skip: 4);
+
+        Assert.Equal(4, first.Count);
+        Assert.NotEmpty(later);
+        Assert.Empty(first.Intersect(later, StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void The_first_batch_is_unchanged_by_the_slicing()
+    {
+        // Skipping nothing has to mean exactly what it always did, or every first search changes.
+        var request = Request(main: "chicken", cuisine: "Japanese");
+
+        Assert.Equal(
+            RecipeSearchPlanner.Plan(request, maxQueries: 4),
+            RecipeSearchPlanner.Plan(request, maxQueries: 4, skip: 0));
+    }
+
+    [Fact]
+    public void The_plan_runs_out_rather_than_starting_over()
+    {
+        // Wrapping around would quietly serve the first batch again as though it were new.
+        Assert.Empty(RecipeSearchPlanner.Plan(Request(main: "beef brisket"), maxQueries: 4, skip: 500));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]

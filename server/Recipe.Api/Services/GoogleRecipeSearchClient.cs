@@ -30,7 +30,6 @@ namespace Recipe.Api.Services;
 public sealed class GoogleRecipeSearchClient(
     IRecipeDiscoveryProvider discovery,
     PublisherRecipePageClient publisherPages,
-    IngredientNormalizer normalizer,
     IOptions<RecipeCatalogOptions> options,
     ILogger<GoogleRecipeSearchClient> logger)
 {
@@ -46,7 +45,30 @@ public sealed class GoogleRecipeSearchClient(
         CancellationToken cancellationToken)
     {
         var target = Math.Clamp(request.MaxRecipes, 1, 12);
-        var queries = RecipeSearchPlanner.Plan(request, _options.MaxQueries);
+
+        // "Show more results" sends back the ids of everything already on screen. A recipe's id is the hash
+        // of its source URL, so a candidate can be recognised as already-seen straight from the search
+        // result, before its page is fetched -- the cheapest possible place to drop it.
+        var alreadyShown = request.RecentlyShownRecipeIds.ToHashSet();
+        var continuation = alreadyShown.Count > 0;
+
+        // And the plan moves on. The ids alone would only empty the batch: the planner would return the same
+        // four queries, discovery the same pages, and every one of them would be filtered out. The plan is
+        // longer than one batch precisely so there is somewhere else to look.
+        var batchesAlready = continuation ? Math.Max(1, alreadyShown.Count / target) : 0;
+        var queries = RecipeSearchPlanner.Plan(
+            request,
+            _options.MaxQueries,
+            batchesAlready * _options.MaxQueries);
+
+        if (queries.Count == 0)
+        {
+            // The plan is exhausted. For a continuation that is the end of the list, not a failure.
+            return continuation
+                ? Nothing()
+                : throw new RecipeSafetyException(
+                    "The recipe search could not be planned. Try different ingredients or restrictions.");
+        }
 
         var candidates = await discovery.DiscoverAsync(queries, _options.ResultsPerQuery, cancellationToken);
 
@@ -55,11 +77,17 @@ public sealed class GoogleRecipeSearchClient(
         // discover it holds no single recipe.
         var worthReading = candidates
             .Where(candidate => !RecipeDishConcept.IsListingPage(candidate.Title, candidate.Url))
+            .Where(candidate => !alreadyShown.Contains(StableGuid(candidate.Url)))
             .Take(Math.Clamp(_options.MaxPagesRead, 1, 60))
             .ToList();
 
         if (worthReading.Count == 0)
         {
+            if (continuation)
+            {
+                return Nothing();
+            }
+
             throw new RecipeSafetyException(
                 "The recipe search found no candidate pages to read. Try different ingredients or restrictions.");
         }
@@ -68,30 +96,44 @@ public sealed class GoogleRecipeSearchClient(
 
         if (collected.Recipes.Count == 0)
         {
+            if (continuation)
+            {
+                return Nothing();
+            }
+
             throw new RecipeSafetyException(
                 "No page found could be read as a recipe for what you have. PLATE will not invent one.");
         }
 
         logger.LogInformation(
-            "GOOGLE PIPELINE queries={Queries} candidates={Candidates} read={Read} accepted={Accepted} "
-            + "rejectedListing={RejectedListing} rejectedMainIngredient={RejectedMain} "
-            + "rejectedDuplicate={RejectedDuplicate} rejectedThin={RejectedThin}",
+            "GOOGLE PIPELINE batch={Batch} queries={Queries} candidates={Candidates} read={Read} "
+            + "accepted={Accepted} rejectedListing={RejectedListing} rejectedSeen={RejectedSeen} "
+            + "rejectedMainIngredient={RejectedMain} rejectedDuplicate={RejectedDuplicate} "
+            + "rejectedThin={RejectedThin}",
+            batchesAlready + 1,
             queries.Count,
             candidates.Count,
             collected.PagesRead,
             collected.Recipes.Count,
-            candidates.Count - worthReading.Count,
+            candidates.Count(candidate => RecipeDishConcept.IsListingPage(candidate.Title, candidate.Url)),
+            candidates.Count(candidate => alreadyShown.Contains(StableGuid(candidate.Url))),
             collected.RejectedMainIngredient,
             collected.RejectedDuplicate,
             collected.RejectedThin);
 
-        return new RecipeGenerationResponse(
-            collected.Recipes,
-            "Google Search",
-            "Ingredients and timings are read from each publisher's own recipe data, and the cooking guide is "
-                + "PLATE's own. Check the source page before cooking, and treat allergy information as "
-                + "unconfirmed.");
+        return new RecipeGenerationResponse(collected.Recipes, "Google Search", Notice);
     }
+
+    private const string Notice =
+        "Ingredients and timings are read from each publisher's own recipe data, and the cooking guide is "
+        + "PLATE's own. Check the source page before cooking, and treat allergy information as unconfirmed.";
+
+    /// <summary>
+    /// An empty batch, for a "show more" that has run out of plan. Returning nothing is the honest answer:
+    /// the alternative is an error for what is the ordinary end of a list, and the app already reads an
+    /// empty batch as "that is everything we could verify for this search".
+    /// </summary>
+    private static RecipeGenerationResponse Nothing() => new([], "Google Search", Notice);
 
     /// <summary>
     /// Reads candidate pages a wave at a time and stops as soon as there are enough distinct dishes.
@@ -265,8 +307,8 @@ public sealed class GoogleRecipeSearchClient(
             IngredientMatch: 0,
             Tags: [],
             Ingredients: publisherPages.MapPublisherIngredients(page.IngredientLines),
-            // No steps on purpose: the method is the publisher's writing, and this path does not have one
-            // of its own yet. Writing it is a separate step with its own cost.
+            // No steps on purpose: the method is the publisher's writing and is never copied. CookingGuideWriter
+            // adds PLATE's own guide after ranking, so nothing is written for a recipe nobody will see.
             Steps: [],
             Accent: AccentFor(title),
             SourceName: domain,
