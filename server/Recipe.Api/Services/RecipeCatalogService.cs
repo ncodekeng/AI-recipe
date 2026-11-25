@@ -6,6 +6,7 @@ namespace Recipe.Api.Services;
 
 public sealed class RecipeCatalogService(
     AzureGroundedRecipeClient azureWebSearch,
+    GoogleRecipeSearchClient googleSearch,
     EdamamRecipeClient edamam,
     PublisherRecipePageClient publisherPages,
     CommercialRecipeImageClient commercialImages,
@@ -25,18 +26,25 @@ public sealed class RecipeCatalogService(
         var (effectiveRequest, _) = ApplyDietaryRestrictions(request);
         var provider = _options.Provider.Trim();
         var useAzureWebSearch = provider.Equals("AzureWebSearch", StringComparison.OrdinalIgnoreCase);
+        var useGoogleSearch = provider.Equals("GoogleSearch", StringComparison.OrdinalIgnoreCase);
         var useEdamam = provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase);
 
-        if (!useAzureWebSearch && !useEdamam)
+        if (!useAzureWebSearch && !useGoogleSearch && !useEdamam)
         {
             throw new RecipeCatalogException(
-                $"Unknown recipe provider '{provider}'. Use AzureWebSearch or Edamam.");
+                $"Unknown recipe provider '{provider}'. Use AzureWebSearch, GoogleSearch or Edamam.");
         }
 
         if (useAzureWebSearch && !azureWebSearch.IsConfigured)
         {
             throw new RecipeCatalogException(
                 "Azure web-grounded recipe search requires an Azure OpenAI endpoint, API key, and deployment. PLATE will not invent a replacement recipe.");
+        }
+
+        if (useGoogleSearch && !googleSearch.IsConfigured)
+        {
+            throw new RecipeCatalogException(
+                "Google recipe discovery requires a Serper API key. PLATE will not invent a replacement recipe.");
         }
 
         if (useEdamam && !_options.Edamam.IsConfigured)
@@ -62,9 +70,14 @@ public sealed class RecipeCatalogService(
             var total = System.Diagnostics.Stopwatch.StartNew();
             var stage = System.Diagnostics.Stopwatch.StartNew();
 
+            // GoogleSearch has already read every page it returns, so it needs no enrichment pass below:
+            // the publisher data is where its recipes came from in the first place, and asking for it
+            // again would fetch all of those pages a second time.
             var response = useAzureWebSearch
                 ? await azureWebSearch.FindRecipesAsync(effectiveRequest, cancellationToken)
-                : await edamam.FindRecipesAsync(effectiveRequest, cancellationToken);
+                : useGoogleSearch
+                    ? await googleSearch.FindRecipesAsync(effectiveRequest, cancellationToken)
+                    : await edamam.FindRecipesAsync(effectiveRequest, cancellationToken);
             var discoveryMs = stage.ElapsedMilliseconds;
 
             stage.Restart();

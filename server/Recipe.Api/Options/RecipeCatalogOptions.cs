@@ -17,7 +17,7 @@ public sealed class PublisherExtractionOptions
 {
     public bool Enabled { get; init; } = true;
     public int MaxResponseBytes { get; init; } = 2 * 1024 * 1024;
-    public int MaxConcurrentRequests { get; init; } = 3;
+    public int MaxConcurrentRequests { get; init; } = 6;
     public bool CacheEnabled { get; init; }
     public int CacheDurationHours { get; init; } = 24;
     public int CacheMaxEntries { get; init; } = 500;
@@ -65,6 +65,28 @@ public sealed class GoogleSearchOptions
     public string Country { get; init; } = "gb";
 
     public string Language { get; init; } = "en";
+
+    /// <summary>
+    /// How many candidate pages may be read before giving up on filling the results. Discovery returns far
+    /// more than this on purpose, because most of the cost of a candidate is paid only if it is read: a
+    /// listing page or a duplicate is discarded for free.
+    /// </summary>
+    public int MaxPagesRead { get; init; } = 24;
+
+    /// <summary>
+    /// Pages read at once. They are independent fetches of other people's servers, so this is the one
+    /// number that is as much about being a good citizen as about speed.
+    /// </summary>
+    public int MaxConcurrentPageReads { get; init; } = 6;
+
+    /// <summary>A deadline for reading pages, separate from the discovery deadline.</summary>
+    public int PageReadTimeoutSeconds { get; init; } = 15;
+
+    /// <summary>
+    /// Whether a recipe must actually contain the main ingredient the customer asked about. On by default:
+    /// a brisket search that returns a taco casserole is worse than one that returns less.
+    /// </summary>
+    public bool RequireMainIngredient { get; init; } = true;
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
 }

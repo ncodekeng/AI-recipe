@@ -31,7 +31,13 @@ public sealed partial class IngredientNormalizer
         ("salmon", ["salmon fillets", "salmon fillet", "salmon"]),
         ("shrimp", ["king prawns", "prawns", "prawn", "shrimps", "shrimp"]),
         ("fish", ["white fish fillets", "white fish", "fish fillets", "fish fillet", "haddock", "tilapia", "cod", "tuna", "fish"]),
-        ("beef", ["ground beef", "minced beef", "beef mince", "beef steak", "steak", "beef"]),
+        // The cuts belong here for the same reason "steak" already does: a customer holding a brisket and a
+        // recipe calling for brisket are the same shopping trip. Without them "beef brisket" collapsed to
+        // the concept "beef" while a line reading just "brisket" stayed "brisket", the two never matched,
+        // and RecipeRankingService dropped the recipe for not containing the main ingredient -- measured on
+        // 24 November 2026, four brisket recipes found and three returned, on every brisket search.
+        ("beef", ["ground beef", "minced beef", "beef mince", "beef steak", "steak", "beef brisket",
+            "brisket", "silverside", "topside", "braising steak", "stewing beef", "short rib", "beef"]),
         ("pork", ["pork chops", "pork chop", "pork tenderloin", "pork mince", "pork"]),
         ("lamb", ["lamb shanks", "lamb shank", "lamb chops", "lamb chop", "lamb mince", "lamb"]),
         ("egg", ["free range eggs", "free-range eggs", "eggs", "egg"]),

@@ -113,7 +113,12 @@ public sealed class PublisherRecipePageClient
         _options = options.Value.PublisherExtraction;
         _normalizer = normalizer;
         _logger = logger;
-        _requestGate = new SemaphoreSlim(Math.Clamp(_options.MaxConcurrentRequests, 1, 5));
+        // The ceiling was 5, which was ample when this only topped up four recipes a model had already
+        // found. Search-first discovery reads twelve to twenty-four pages per search, and at three at a
+        // time that was 12 of the 13.8 seconds measured on 24 November 2026. These are plain GETs of
+        // public pages spread across different publishers, so the limit is about not hammering any one
+        // site rather than about our own capacity.
+        _requestGate = new SemaphoreSlim(Math.Clamp(_options.MaxConcurrentRequests, 1, 10));
         _cacheEnabled = _options.CacheEnabled && options.Value.Cache.ProviderPermissionConfirmed;
         _allowUnverifiedPublisherImagesForTesting =
             environment.IsDevelopment() &&
@@ -129,6 +134,56 @@ public sealed class PublisherRecipePageClient
     }
 
     public bool IsEnabled => _options.Enabled;
+
+    /// <summary>
+    /// Reads every recipe a page states about itself, with no recipe to match against first.
+    ///
+    /// EnrichAsync answers a different question -- "does this page back up the recipe a model already
+    /// claimed?" -- and needs a title and ingredients to score against. Discovery through a search engine
+    /// inverts that: the page is found first and is the only thing that has made a claim, so there is
+    /// nothing to match and nothing to confirm. What the page says is the result.
+    ///
+    /// An unreachable or unparseable page returns empty rather than throwing. One page failing out of
+    /// thirty is ordinary, and a thinner set of results beats none.
+    /// </summary>
+    public async Task<IReadOnlyList<PublisherPageRecipe>> ReadPageRecipesAsync(
+        string? sourceUrl,
+        CancellationToken cancellationToken)
+    {
+        if (!_options.Enabled || !TryCreateSafeSourceUri(sourceUrl, out var sourceUri))
+        {
+            return [];
+        }
+
+        try
+        {
+            var recipes = await GetPageRecipesAsync(sourceUri, cancellationToken);
+            return recipes
+                .Select(recipe => new PublisherPageRecipe(
+                    recipe.Title,
+                    recipe.IngredientLines,
+                    recipe.PrepMinutes,
+                    recipe.CookMinutes,
+                    recipe.TotalMinutes,
+                    recipe.Servings,
+                    recipe.CaloriesPerServing,
+                    recipe.ImageUrl))
+                .ToList();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "A candidate page could not be read: {SourceUrl}", sourceUri);
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Turns a publisher's ingredient lines into structured ingredients with no model output to lean on.
+    /// The same parser the enrichment path uses, which already falls back to reading the name out of the
+    /// line itself when there is nothing to match against.
+    /// </summary>
+    public IReadOnlyList<RecipeIngredient> MapPublisherIngredients(IReadOnlyList<string> lines) =>
+        MapIngredients(lines, []);
 
     public async Task<RecipeGenerationResponse> EnrichAsync(
         RecipeGenerationResponse response,

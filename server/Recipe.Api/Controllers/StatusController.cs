@@ -23,11 +23,15 @@ public sealed class StatusController(
         var catalog = catalogOptions.Value;
         var useEdamam = catalog.Provider.Equals("Edamam", StringComparison.OrdinalIgnoreCase);
         var useAzureWebSearch = catalog.Provider.Equals("AzureWebSearch", StringComparison.OrdinalIgnoreCase);
+        var useGoogleSearch = catalog.Provider.Equals("GoogleSearch", StringComparison.OrdinalIgnoreCase);
         var recipeProvider = useEdamam
             ? "Edamam"
-            : useAzureWebSearch ? "Azure Web Search" : "Unknown recipe provider";
+            : useAzureWebSearch ? "Azure Web Search"
+            : useGoogleSearch ? "Google Search"
+            : "Unknown recipe provider";
         var recipeProviderConfigured = useEdamam
             ? catalog.Edamam.IsConfigured
+            : useGoogleSearch ? catalog.GoogleSearch.IsConfigured
             : useAzureWebSearch && azureConfigured;
 
         return Ok(new ServiceStatusResponse(

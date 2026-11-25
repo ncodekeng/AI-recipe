@@ -82,6 +82,11 @@ builder.Services.AddHttpClient<CommercialRecipeImageClient>(client =>
 {
     AllowAutoRedirect = false
 });
+// The seam is the interface, so the pipeline can be tested against a stub and a second search engine can
+// be added without touching it. SerperDiscoveryProvider is registered above with its own HttpClient.
+builder.Services.AddScoped<IRecipeDiscoveryProvider>(services =>
+    services.GetRequiredService<SerperDiscoveryProvider>());
+builder.Services.AddScoped<GoogleRecipeSearchClient>();
 builder.Services.AddScoped<IRecipeAiService, RecipeAiService>();
 builder.Services.AddScoped<IRecipeCatalogService, RecipeCatalogService>();
 

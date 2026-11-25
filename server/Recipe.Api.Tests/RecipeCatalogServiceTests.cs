@@ -363,6 +363,15 @@ public sealed class RecipeCatalogServiceTests
             imageMemoryCache,
             options,
             NullLogger<RecipePhotoCache>.Instance);
+        var publisherPages = new PublisherRecipePageClient(
+            publisherHandler is null
+                ? new HttpClient(new JsonHandler("Not found", HttpStatusCode.NotFound))
+                : new HttpClient(publisherHandler),
+            imageMemoryCache,
+            options,
+            environment,
+            normalizer,
+            NullLogger<PublisherRecipePageClient>.Instance);
         return new RecipeCatalogService(
             new AzureGroundedRecipeClient(
                 recipeHandler is null ? new HttpClient() : new HttpClient(recipeHandler),
@@ -372,16 +381,19 @@ public sealed class RecipeCatalogServiceTests
                 normalizer,
                 new RecipeRankingService(normalizer),
                 NullLogger<AzureGroundedRecipeClient>.Instance),
-            new EdamamRecipeClient(recipeHttpClient, options, normalizer),
-            new PublisherRecipePageClient(
-                publisherHandler is null
-                    ? new HttpClient(new JsonHandler("Not found", HttpStatusCode.NotFound))
-                    : new HttpClient(publisherHandler),
-                imageMemoryCache,
-                options,
-                environment,
+            // These tests all drive the AzureWebSearch or Edamam providers; the Google path has its own
+            // suite. It is constructed with no key, so selecting it would be refused rather than faked.
+            new GoogleRecipeSearchClient(
+                new SerperDiscoveryProvider(
+                    new HttpClient { BaseAddress = new Uri("https://google.serper.dev/") },
+                    options,
+                    NullLogger<SerperDiscoveryProvider>.Instance),
+                publisherPages,
                 normalizer,
-                NullLogger<PublisherRecipePageClient>.Instance),
+                options,
+                NullLogger<GoogleRecipeSearchClient>.Instance),
+            new EdamamRecipeClient(recipeHttpClient, options, normalizer),
+            publisherPages,
             new CommercialRecipeImageClient(
                 imageHandler is null
                     ? new HttpClient { BaseAddress = new Uri("https://commons.wikimedia.org/") }

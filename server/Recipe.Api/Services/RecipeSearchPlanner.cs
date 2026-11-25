@@ -30,6 +30,20 @@ public static class RecipeSearchPlanner
     // varying the cuisine is not allowed but varying the dish still is.
     private static readonly string[] Forms = ["recipe", "traybake recipe", "stew recipe", "salad recipe", "soup recipe"];
 
+    // One well-known dish per cuisine, for Inspire Me with an empty basket.
+    //
+    // A cuisine on its own is too broad to be a recipe query. Measured on 24 November 2026, asking for
+    // "italian recipe" and its siblings returned 19 roundup pages out of 31 candidates -- "30 best Italian
+    // dinners" and the like -- and Inspire Me came back with a single recipe. A query that names a dish
+    // gets pages that are about that dish, because that is what the publisher wrote the page for.
+    private static readonly (string Cuisine, string Dish)[] SignatureDishes =
+    [
+        ("Italian", "pasta"), ("Indian", "curry"), ("Mexican", "tacos"), ("Japanese", "rice bowl"),
+        ("Thai", "curry"), ("Chinese", "stir fry"), ("French", "casserole"), ("Mediterranean", "traybake"),
+        ("Korean", "bibimbap"), ("Caribbean", "stew"), ("British", "pie"), ("Arabic", "kebab"),
+        ("Eastern European", "dumplings"), ("Swedish", "meatballs"), ("Ghanaian", "jollof rice"),
+    ];
+
     /// <summary>
     /// The queries to run, most promising first. Always at least one, never more than <paramref name="maxQueries"/>,
     /// and never duplicated.
@@ -55,10 +69,11 @@ public static class RecipeSearchPlanner
         }
         else if (subject.Length == 0)
         {
-            // Inspire Me with nothing at all: the cuisines themselves are the only axis available.
-            foreach (var option in Cuisines)
+            // Inspire Me with nothing at all: the cuisines are the only axis available, each anchored to a
+            // dish so the query asks for a recipe rather than for a magazine round-up.
+            foreach (var (option, dish) in SignatureDishes)
             {
-                Add(queries, Compose(option, string.Empty, "recipe", qualifiers), limit);
+                Add(queries, Compose(option, dish, "recipe", qualifiers), limit);
             }
         }
         else

@@ -59,6 +59,16 @@ public sealed class RecipeSearchPlannerTests
 
         Assert.NotEmpty(queries);
         Assert.All(queries, query => Assert.False(string.IsNullOrWhiteSpace(query)));
+
+        // Each query has to name a dish, not just a cuisine. Measured on 24 November 2026, "italian
+        // recipe" and its siblings returned 19 round-up pages out of 31 candidates and Inspire Me came
+        // back with one recipe, because a query that broad matches magazine listicles.
+        string[] dishes =
+            ["pasta", "curry", "tacos", "rice bowl", "stir fry", "casserole", "traybake", "bibimbap",
+             "stew", "pie", "kebab", "dumplings", "meatballs", "jollof"];
+        Assert.All(queries, query => Assert.True(
+            dishes.Any(dish => query.Contains(dish, StringComparison.OrdinalIgnoreCase)),
+            $"no dish named in: {query}"));
     }
 
     [Fact]
