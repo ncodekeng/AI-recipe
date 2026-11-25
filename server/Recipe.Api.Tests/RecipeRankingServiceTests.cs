@@ -356,6 +356,43 @@ public sealed class RecipeRankingServiceTests
     }
 
     [Fact]
+    public void Keeps_a_recipe_whose_ingredient_name_reduced_to_a_noise_word()
+    {
+        // Measured on 25 November 2026: "Creamy Tuscan Chicken" was dropped from a chicken search because
+        // its chicken line extracted the name "boneless". That is a noise word, so it normalized to the
+        // empty string and the whole ingredient was discarded before the main-ingredient test ran -- a
+        // different fault from a name that merely normalizes to the wrong thing.
+        var tuscan = new RecipeSuggestion(
+            Guid.NewGuid(),
+            "Creamy Tuscan Chicken",
+            "A provider recipe.",
+            35,
+            "Easy",
+            "Italian",
+            4,
+            0,
+            ["Dinner"],
+            [
+                new RecipeIngredient("4", "boneless", null, null, "4 boneless, skinless chicken breasts"),
+                new RecipeIngredient("1/2 c.", "cherry tomatoes", null, null, "1/2 c. cherry tomatoes"),
+            ],
+            [],
+            "coral",
+            SourceUrl: "https://publisher.example.test/tuscan");
+
+        var ranked = new RecipeRankingService(new IngredientNormalizer()).Rank(
+            [tuscan],
+            [new IngredientInput("chicken thighs", "6")],
+            mainIngredient: "chicken");
+
+        var recipe = Assert.Single(ranked);
+        // And the chicken counts as something the customer has, not something they are missing.
+        Assert.Contains(
+            recipe.AvailableIngredients ?? [],
+            ingredient => (ingredient.OriginalText ?? string.Empty).Contains("chicken", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Still_drops_a_recipe_that_does_not_contain_the_main_ingredient_at_all()
     {
         // The guard on the rule above: reading the publisher's line must widen what counts as present,

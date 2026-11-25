@@ -16,8 +16,8 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
             .ToList();
         var meaningfulRequired = requiredIngredients
             .Where(item => !string.IsNullOrWhiteSpace(item.Name))
-            .Where(item => !normalizer.IsPantryStaple(item.Name))
-            .GroupBy(item => normalizer.Normalize(item.Name), StringComparer.Ordinal)
+            .Where(item => !normalizer.IsPantryStaple(MatchText(item)))
+            .GroupBy(item => normalizer.Normalize(MatchText(item)), StringComparer.Ordinal)
             .Where(group => !string.IsNullOrWhiteSpace(group.Key))
             .Select(group => group.First())
             .ToList();
@@ -26,7 +26,7 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
         var missing = new List<RecipeIngredient>();
         foreach (var ingredient in meaningfulRequired)
         {
-            if (pantryNames.Any(item => normalizer.Matches(item, ingredient.Name)))
+            if (pantryNames.Any(item => normalizer.Matches(item, MatchText(ingredient))))
             {
                 available.Add(ingredient);
             }
@@ -75,6 +75,24 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
             availability,
             mainIngredientPresent,
             BuildMatchReason(matchPercentage, available, missing, mainIngredientPresent));
+    }
+
+    /// <summary>
+    /// The text that identifies an ingredient for matching: its name, or the publisher's own line when the
+    /// name carries nothing.
+    ///
+    /// The name is extracted by PLATE and can reduce to nothing at all. Measured on 25 November 2026,
+    /// "Creamy Tuscan Chicken" lost its chicken because the line's name came out as "boneless", which is a
+    /// noise word -- so it normalized to the empty string, the empty group was discarded here, and the
+    /// ingredient had vanished before the main-ingredient test could look for it. A chicken search then
+    /// returned three recipes instead of four. The publisher's line still said chicken breasts.
+    /// </summary>
+    private string MatchText(RecipeIngredient ingredient)
+    {
+        var name = ingredient.Name ?? string.Empty;
+        return normalizer.Normalize(name).Length > 0
+            ? name
+            : ingredient.OriginalText ?? name;
     }
 
     public IReadOnlyList<RecipeSuggestion> Rank(
