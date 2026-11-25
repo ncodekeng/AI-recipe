@@ -130,6 +130,59 @@ public sealed class RecipeSearchPlannerTests
     }
 
     [Fact]
+    public void A_basket_is_searched_for_what_is_substantial_in_it_not_what_is_first()
+    {
+        // Measured on 25 November 2026. A basket of salt, olive oil, water, chicken thighs and rice with no
+        // main ingredient chosen searched for "salt olive oil water" -- the first three as they happened to
+        // be listed -- and returned marinated olives, an olive oil bread dip and spaghetti aglio e olio. The
+        // chicken and the rice were never searched for at all. A basket is whatever came off a shelf, in no
+        // useful order, so the caller chooses the strongest few and the planner is told.
+        var normalizer = new IngredientNormalizer();
+        var request = Request() with
+        {
+            Ingredients =
+            [
+                new IngredientInput("salt", "1 tsp"),
+                new IngredientInput("olive oil", "2 tbsp"),
+                new IngredientInput("water", "500 ml"),
+                new IngredientInput("chicken thighs", "6"),
+                new IngredientInput("rice", "300 g"),
+            ],
+        };
+
+        var focus = normalizer.SelectRecipeSearchFocus(request.Ingredients, 3, mainIngredient: string.Empty);
+        var queries = RecipeSearchPlanner.Plan(request, maxQueries: 4, skip: 0, searchFocus: focus);
+
+        var all = string.Join(" | ", queries);
+        Assert.Contains("chicken", all, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("rice", all, StringComparison.OrdinalIgnoreCase);
+        // The pantry staples are not what anybody is cooking.
+        Assert.DoesNotContain("salt", all, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("water", all, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("olive oil", all, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_chosen_main_ingredient_still_wins_over_the_rest_of_the_basket()
+    {
+        // The customer naming one ingredient as the point of the dish outranks any selection we would make.
+        var normalizer = new IngredientNormalizer();
+        var request = Request(main: "beef brisket") with
+        {
+            Ingredients =
+            [
+                new IngredientInput("potatoes", "1 kg"),
+                new IngredientInput("beef brisket", "1 kg"),
+            ],
+        };
+
+        var focus = normalizer.SelectRecipeSearchFocus(request.Ingredients, 3, mainIngredient: "beef brisket");
+        var queries = RecipeSearchPlanner.Plan(request, maxQueries: 4, skip: 0, searchFocus: focus);
+
+        Assert.All(queries, query => Assert.Contains("beef brisket", query, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void A_later_slice_of_the_plan_asks_different_questions()
     {
         // "Show more results" depends on this. The plan is far longer than one batch -- fifteen cuisines,

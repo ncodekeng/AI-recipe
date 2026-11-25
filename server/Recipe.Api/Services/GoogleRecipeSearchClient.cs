@@ -30,6 +30,7 @@ namespace Recipe.Api.Services;
 public sealed class GoogleRecipeSearchClient(
     IRecipeDiscoveryProvider discovery,
     PublisherRecipePageClient publisherPages,
+    IngredientNormalizer normalizer,
     IOptions<RecipeCatalogOptions> options,
     ILogger<GoogleRecipeSearchClient> logger)
 {
@@ -56,10 +57,22 @@ public sealed class GoogleRecipeSearchClient(
         // four queries, discovery the same pages, and every one of them would be filtered out. The plan is
         // longer than one batch precisely so there is somewhere else to look.
         var batchesAlready = continuation ? Math.Max(1, alreadyShown.Count / target) : 0;
+
+        // Which of the basket to actually search for. A basket is whatever came off a fridge shelf, in no
+        // useful order, so the strongest few are chosen rather than the first few: one substantial protein,
+        // then staple bases, then useful produce, and never the salt. The Azure and Edamam paths have always
+        // done this; leaving it out here meant a basket of salt, olive oil, water, chicken thighs and rice
+        // searched for "salt olive oil water" and returned marinated olives and an olive oil bread dip.
+        var searchFocus = normalizer.SelectRecipeSearchFocus(
+            request.Ingredients,
+            maxCount: 3,
+            mainIngredient: request.MainIngredient);
+
         var queries = RecipeSearchPlanner.Plan(
             request,
             _options.MaxQueries,
-            batchesAlready * _options.MaxQueries);
+            batchesAlready * _options.MaxQueries,
+            searchFocus);
 
         if (queries.Count == 0)
         {

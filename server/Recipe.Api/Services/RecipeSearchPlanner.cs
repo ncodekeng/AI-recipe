@@ -54,12 +54,23 @@ public static class RecipeSearchPlanner
     /// dishes -- and without this a second tap re-ran the same four queries, found the same pages and had
     /// nothing new to offer. Returns empty once the plan is exhausted, which is the honest end of the list.
     /// </param>
-    public static IReadOnlyList<string> Plan(GenerateRecipesRequest request, int maxQueries = 4, int skip = 0)
+    /// <param name="searchFocus">
+    /// The basket's strongest few ingredients, already chosen by IngredientNormalizer: one substantial
+    /// protein first, then staple bases, then useful produce, with pantry staples left out. Supply it for a
+    /// basket of several ingredients. Without it the first three are used in the order the basket happens to
+    /// be in, and measured on 25 November 2026 a basket of salt, olive oil, water, chicken thighs and rice
+    /// searched for "salt olive oil water" and returned marinated olives and an olive oil bread dip.
+    /// </param>
+    public static IReadOnlyList<string> Plan(
+        GenerateRecipesRequest request,
+        int maxQueries = 4,
+        int skip = 0,
+        IReadOnlyList<string>? searchFocus = null)
     {
         var limit = Math.Clamp(maxQueries, 1, 8);
         var queries = new List<string>();
 
-        var subject = Subject(request);
+        var subject = Subject(request, searchFocus);
         var qualifiers = Qualifiers(request);
         var cuisine = request.CuisinePreference.Trim();
         var surprise = cuisine.Length == 0 || cuisine.Equals("Surprise Me", StringComparison.OrdinalIgnoreCase);
@@ -112,7 +123,7 @@ public static class RecipeSearchPlanner
     }
 
     /// <summary>What the dish is about: the main ingredient, or the strongest few from the basket.</summary>
-    private static string Subject(GenerateRecipesRequest request)
+    private static string Subject(GenerateRecipesRequest request, IReadOnlyList<string>? searchFocus)
     {
         var main = request.MainIngredient.Trim();
         if (main.Length > 0)
@@ -120,8 +131,14 @@ public static class RecipeSearchPlanner
             return main;
         }
 
-        // Three at most. A query naming the whole pantry matches nothing: no published recipe uses
-        // everything in somebody's fridge.
+        // The chosen few, where the caller worked out which they are. Three at most either way: a query
+        // naming the whole pantry matches nothing, because no published recipe uses everything in
+        // somebody's fridge.
+        if (searchFocus is { Count: > 0 })
+        {
+            return string.Join(' ', searchFocus.Take(3));
+        }
+
         var names = request.Ingredients
             .Select(item => item.Name?.Trim() ?? string.Empty)
             .Where(name => name.Length > 0)

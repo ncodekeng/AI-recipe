@@ -389,6 +389,7 @@ public sealed class RecipeCatalogServiceTests
                     options,
                     NullLogger<SerperDiscoveryProvider>.Instance),
                 publisherPages,
+                normalizer,
                 options,
                 NullLogger<GoogleRecipeSearchClient>.Instance),
             new EdamamRecipeClient(recipeHttpClient, options, normalizer),

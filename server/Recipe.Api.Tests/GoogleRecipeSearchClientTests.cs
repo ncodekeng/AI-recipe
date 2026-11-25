@@ -400,6 +400,7 @@ public sealed class GoogleRecipeSearchClientTests
         var client = new GoogleRecipeSearchClient(
             new StubDiscovery(candidates, queriesSeen),
             publisherPages,
+            new IngredientNormalizer(),
             options,
             NullLogger<GoogleRecipeSearchClient>.Instance);
 
