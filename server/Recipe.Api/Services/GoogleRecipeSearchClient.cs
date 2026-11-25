@@ -77,6 +77,9 @@ public sealed class GoogleRecipeSearchClient(
         // discover it holds no single recipe.
         var worthReading = candidates
             .Where(candidate => !RecipeDishConcept.IsListingPage(candidate.Title, candidate.Url))
+            // A pinboard, a stock photo library or a supermarket page cannot hold a publisher recipe. Image
+            // search finds plenty of all three, and each one would otherwise cost a page read to find out.
+            .Where(candidate => !RecipeDishConcept.IsUnsuitableSource(candidate.Url))
             .Where(candidate => !alreadyShown.Contains(StableGuid(candidate.Url)))
             .Take(Math.Clamp(_options.MaxPagesRead, 1, 60))
             .ToList();
@@ -106,16 +109,20 @@ public sealed class GoogleRecipeSearchClient(
         }
 
         logger.LogInformation(
-            "GOOGLE PIPELINE batch={Batch} queries={Queries} candidates={Candidates} read={Read} "
-            + "accepted={Accepted} rejectedListing={RejectedListing} rejectedSeen={RejectedSeen} "
+            "GOOGLE PIPELINE batch={Batch} queries={Queries} candidates={Candidates} fromImages={FromImages} "
+            + "read={Read} accepted={Accepted} acceptedFromImages={AcceptedFromImages} "
+            + "rejectedListing={RejectedListing} rejectedSource={RejectedSource} rejectedSeen={RejectedSeen} "
             + "rejectedMainIngredient={RejectedMain} rejectedDuplicate={RejectedDuplicate} "
             + "rejectedThin={RejectedThin}",
             batchesAlready + 1,
             queries.Count,
             candidates.Count,
+            candidates.Count(candidate => candidate.Source == RecipeCandidateSource.ImageSearch),
             collected.PagesRead,
             collected.Recipes.Count,
+            collected.AcceptedFromImages,
             candidates.Count(candidate => RecipeDishConcept.IsListingPage(candidate.Title, candidate.Url)),
+            candidates.Count(candidate => RecipeDishConcept.IsUnsuitableSource(candidate.Url)),
             candidates.Count(candidate => alreadyShown.Contains(StableGuid(candidate.Url))),
             collected.RejectedMainIngredient,
             collected.RejectedDuplicate,
@@ -159,6 +166,7 @@ public sealed class GoogleRecipeSearchClient(
         var rejectedMain = 0;
         var rejectedDuplicate = 0;
         var rejectedThin = 0;
+        var acceptedFromImages = 0;
 
         for (var offset = 0; offset < candidates.Count && accepted.Count < target; offset += waveSize)
         {
@@ -206,10 +214,15 @@ public sealed class GoogleRecipeSearchClient(
                 }
 
                 accepted.Add(BuildSuggestion(candidate, page, request));
+                if (candidate.Source == RecipeCandidateSource.ImageSearch)
+                {
+                    acceptedFromImages++;
+                }
             }
         }
 
-        return new Collected(accepted, pagesRead, rejectedMain, rejectedDuplicate, rejectedThin);
+        return new Collected(
+            accepted, pagesRead, rejectedMain, rejectedDuplicate, rejectedThin, acceptedFromImages);
     }
 
     /// <summary>
@@ -361,5 +374,6 @@ public sealed class GoogleRecipeSearchClient(
         int PagesRead,
         int RejectedMainIngredient,
         int RejectedDuplicate,
-        int RejectedThin);
+        int RejectedThin,
+        int AcceptedFromImages);
 }

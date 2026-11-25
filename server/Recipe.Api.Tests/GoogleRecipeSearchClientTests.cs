@@ -164,6 +164,87 @@ public sealed class GoogleRecipeSearchClientTests
         Assert.Contains("will not invent", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    // ---- Image search ------------------------------------------------------------------------------
+
+    private const string GoogleImage = "https://cdn.publisher.test/photograph-we-may-not-use.jpg";
+    private const string GoogleThumbnail = "https://encrypted-tbn0.gstatic.test/thumb.jpg";
+
+    [Fact]
+    public async Task A_photograph_found_through_google_images_is_never_put_on_the_recipe()
+    {
+        // The point of an image result is the page it links to, not the picture. That picture belongs to
+        // whoever took it and was reached through a third party's index, so PLATE does not display,
+        // download or rehost it. Photographs come from CommercialRecipeImageClient, which verifies a
+        // commercial licence, or from the publisher's own schema.org image under the prototype flag.
+        var pages = new Dictionary<string, string>
+        {
+            ["https://a.test/1"] = RecipePage("Beef Brisket Curry", Brisket),
+            ["https://b.test/2"] = RecipePage("Beef Brisket Stew", Brisket),
+            ["https://c.test/3"] = RecipePage("Beef Brisket Pie", Brisket),
+            ["https://d.test/4"] = RecipePage("Beef Brisket Ramen", Brisket),
+        };
+
+        var response = await Run(
+            pages.Keys,
+            pages,
+            Request("beef brisket"),
+            source: RecipeCandidateSource.ImageSearch);
+
+        Assert.Equal(4, response.Recipes.Count);
+        var json = System.Text.Json.JsonSerializer.Serialize(response);
+        Assert.DoesNotContain(GoogleImage, json, StringComparison.Ordinal);
+        Assert.DoesNotContain(GoogleThumbnail, json, StringComparison.Ordinal);
+        Assert.DoesNotContain("gstatic", json, StringComparison.OrdinalIgnoreCase);
+        Assert.All(response.Recipes, recipe => Assert.Null(recipe.ImageUrl));
+    }
+
+    [Fact]
+    public async Task A_recipe_found_through_image_search_is_still_read_from_the_publishers_page()
+    {
+        // No shortcut because it came from the image index: the title, ingredients and timings are the
+        // publisher's own structured data, read from the page, exactly as for a web result.
+        var pages = new Dictionary<string, string>
+        {
+            ["https://a.test/1"] = RecipePage("Rack of Lamb with Herb Crust", Brisket, totalTime: "PT45M"),
+        };
+
+        var response = await Run(
+            pages.Keys,
+            pages,
+            Request("beef brisket", maxRecipes: 3),
+            source: RecipeCandidateSource.ImageSearch);
+
+        var recipe = Assert.Single(response.Recipes);
+        Assert.Equal("Rack of Lamb with Herb Crust", recipe.Title);
+        Assert.Equal(45, recipe.CookingMinutes);
+        Assert.NotEmpty(recipe.Ingredients);
+        Assert.True(recipe.PublisherPageVerified);
+        Assert.Equal("https://a.test/1", recipe.SourceUrl);
+    }
+
+    [Fact]
+    public async Task A_pinboard_is_never_fetched()
+    {
+        // Image search finds these constantly, and each one would otherwise cost a page read to discover
+        // it holds no recipe.
+        var pages = new Dictionary<string, string>
+        {
+            ["https://www.pinterest.co.uk/pin/123"] = RecipePage("Looks like a recipe", Brisket),
+            ["https://a.test/1"] = RecipePage("Beef Brisket Curry", Brisket),
+        };
+
+        var fetched = new List<string>();
+        var response = await Run(
+            pages.Keys,
+            pages,
+            Request("beef brisket", maxRecipes: 3),
+            fetched,
+            source: RecipeCandidateSource.ImageSearch);
+
+        Assert.DoesNotContain("https://www.pinterest.co.uk/pin/123", fetched);
+        Assert.Single(response.Recipes);
+    }
+
     // ---- Show more results ------------------------------------------------------------------------
 
     [Fact]
@@ -278,14 +359,19 @@ public sealed class GoogleRecipeSearchClientTests
         GenerateRecipesRequest request,
         List<string>? fetched = null,
         string listingTitle = "",
-        List<string>? queriesSeen = null)
+        List<string>? queriesSeen = null,
+        RecipeCandidateSource source = RecipeCandidateSource.WebSearch)
     {
         var candidates = urls
             .Select(url => new RecipeCandidate(
                 url,
                 url.Contains("collection", StringComparison.OrdinalIgnoreCase) ? listingTitle : "A recipe",
                 null,
-                "beef brisket recipe"))
+                "beef brisket recipe",
+                source,
+                source == RecipeCandidateSource.ImageSearch ? "A Publisher" : null,
+                source == RecipeCandidateSource.ImageSearch ? GoogleImage : null,
+                source == RecipeCandidateSource.ImageSearch ? GoogleThumbnail : null))
             .ToList();
 
         var options = Microsoft.Extensions.Options.Options.Create(new RecipeCatalogOptions

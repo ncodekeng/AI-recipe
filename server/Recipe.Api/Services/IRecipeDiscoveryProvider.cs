@@ -14,7 +14,31 @@ namespace Recipe.Api.Services;
 /// <param name="Title">The provider's title for the page, used for dish-concept work before fetching.</param>
 /// <param name="Snippet">The provider's extract, where it gives one.</param>
 /// <param name="Query">The query that found it, kept for attribution and for diagnosing a thin result.</param>
-public sealed record RecipeCandidate(string Url, string Title, string? Snippet, string Query);
+/// <param name="Source">Which Serper endpoint found it, so a benchmark can tell the two apart.</param>
+/// <param name="PublisherName">What the search engine called the site. Never used as the recipe's source.</param>
+/// <param name="ImageUrl">
+/// The photograph the image search pointed at. Carried for diagnostics and ranking ONLY: it is somebody
+/// else's copyrighted photograph, reached through a Google index, and PLATE neither displays, downloads nor
+/// rehosts it. Pictures come from CommercialRecipeImageClient, which verifies a commercial licence, or from
+/// the publisher's own schema.org image under the existing prototype flag. A test holds this.
+/// </param>
+/// <param name="ThumbnailUrl">Google's thumbnail of the above, under exactly the same restriction.</param>
+public sealed record RecipeCandidate(
+    string Url,
+    string Title,
+    string? Snippet,
+    string Query,
+    RecipeCandidateSource Source = RecipeCandidateSource.WebSearch,
+    string? PublisherName = null,
+    string? ImageUrl = null,
+    string? ThumbnailUrl = null);
+
+/// <summary>Which Serper endpoint produced a candidate.</summary>
+public enum RecipeCandidateSource
+{
+    WebSearch,
+    ImageSearch,
+}
 
 /// <summary>
 /// Finds candidate recipe pages. Implementations do no extraction and make no claim about what a page

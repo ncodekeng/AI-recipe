@@ -78,6 +78,49 @@ public static class RecipeDishConcept
         "/search", "/tag/", "/tags/", "/category/", "/categories/", "/collection", "/topics/", "/cuisine/",
     ];
 
+    // Hosts that never carry a publisher recipe with schema.org data, grouped by why they turn up.
+    //
+    // This exists for the image search. Searching Google Images for "rack of lamb" surfaces the picture
+    // wherever it was posted, and a great deal of food photography lives on pinboards, social feeds, stock
+    // libraries and supermarket product pages. Every one of those costs a publisher fetch to discover it
+    // holds no recipe, and a Pinterest board in particular looks exactly like a recipe until it is read.
+    // The web search returns these far less often, which is why the filter arrived with image search.
+    private static readonly string[] UnsuitableHosts =
+    [
+        // Pinboards and social feeds: a photograph with a caption, and the recipe somewhere else entirely.
+        "pinterest.", "instagram.com", "facebook.com", "twitter.com", "x.com", "tiktok.com",
+        "youtube.com", "youtu.be", "reddit.com", "tumblr.com", "flickr.com", "threads.net",
+        // Stock photo libraries: a picture of a dinner for sale, never a recipe.
+        "shutterstock.com", "gettyimages.", "istockphoto.com", "alamy.com", "dreamstime.com",
+        "123rf.com", "depositphotos.com", "unsplash.com", "pexels.com", "stock.adobe.com",
+        // Shopping and groceries: an ingredient to buy, not a dinner to cook.
+        "amazon.", "ebay.", "etsy.com", "tesco.com", "sainsburys.co.uk", "asda.com", "waitrose.com",
+        "morrisons.com", "ocado.com", "aldi.co.uk", "lidl.co.uk", "walmart.com", "instacart.com",
+        // Question-and-answer and wikis: prose about food rather than a recipe with ingredients.
+        "quora.com", "wikipedia.org", "wikihow.com", "tripadvisor.",
+    ];
+
+    /// <summary>
+    /// Is this host one that cannot hold a publisher recipe, whatever the page is called?
+    ///
+    /// Separate from <see cref="IsListingPage"/> so the two stay countable apart in the logs: one is a page
+    /// that lists recipes, this is a site that does not publish them.
+    /// </summary>
+    public static bool IsUnsuitableSource(string? sourceUrl)
+    {
+        if (!Uri.TryCreate(sourceUrl?.Trim(), UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        var host = uri.Host.ToLowerInvariant();
+        return UnsuitableHosts.Any(unsuitable =>
+            unsuitable.EndsWith('.')
+                // "pinterest." matches pinterest.com, pinterest.co.uk and the rest of the country domains.
+                ? host.Contains(unsuitable, StringComparison.Ordinal)
+                : host == unsuitable || host.EndsWith("." + unsuitable, StringComparison.Ordinal));
+    }
+
     /// <summary>
     /// Is this a roundup, category index or search-results page rather than a single recipe?
     /// </summary>

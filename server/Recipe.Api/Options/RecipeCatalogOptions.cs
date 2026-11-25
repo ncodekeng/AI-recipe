@@ -52,6 +52,35 @@ public sealed class GoogleSearchOptions
     /// <summary>How many planned queries to run for one search. More breadth, more credits.</summary>
     public int MaxQueries { get; init; } = 4;
 
+    /// <summary>
+    /// Which Serper endpoints discovery uses: WebSearch, ImageSearch, or Combined.
+    ///
+    /// Image search is here because a client demonstrated that searching Google Images for an ingredient
+    /// returns individual recipes from many publishers at once. It is a genuinely different index, not a
+    /// different view of the same one, so it finds pages the web search does not -- and it also returns
+    /// Pinterest boards, stock photo libraries and supermarket listings, which the web search mostly does
+    /// not. Hence RecipeDishConcept.IsUnsuitableSource.
+    ///
+    /// Configurable because each mode is a different trade of speed, breadth and credits, and that is a
+    /// product decision to be made on measurements rather than compiled in.
+    ///
+    /// ImageSearch by default: an image result already carries the original publisher page URL, so the
+    /// image index answers the whole question on its own and the web index is not needed to start with.
+    /// WebSearch and Combined stay available behind this setting for the case where image search alone
+    /// turns out not to cover enough recipes -- which is a measurement, so the code for it stays.
+    /// </summary>
+    public string DiscoveryMode { get; init; } = "ImageSearch";
+
+    /// <summary>Image results requested per query. Serper bills an image query the same as a web query.</summary>
+    public int ImageResultsPerQuery { get; init; } = 10;
+
+    public bool UsesWebSearch =>
+        !DiscoveryMode.Equals("ImageSearch", StringComparison.OrdinalIgnoreCase);
+
+    public bool UsesImageSearch =>
+        DiscoveryMode.Equals("ImageSearch", StringComparison.OrdinalIgnoreCase) ||
+        DiscoveryMode.Equals("Combined", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Results requested per query. Serper is reported to charge extra beyond ten.</summary>
     public int ResultsPerQuery { get; init; } = 10;
 
