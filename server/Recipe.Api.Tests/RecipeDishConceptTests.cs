@@ -107,6 +107,29 @@ public sealed class RecipeDishConceptTests
     }
 
     [Theory]
+    // Measured on 25 November 2026. Inspire Me returned the first pair as two of its four results, and a
+    // search for vegetables returned the second. Each is one dinner written up at two lengths.
+    [InlineData("Easy chicken curry", "Best Indian Chicken Curry With Yoghurt")]
+    [InlineData("Aubergine parmigiana", "Aubergine Parmigiana (Melanzane alla Parmigiana)")]
+    public void Treats_a_fuller_write_up_of_one_dinner_as_one_dish(string first, string second)
+    {
+        // Overlap scoring cannot see these. Every extra word the fuller title carries counts against the
+        // score, so both pairs land on 0.50 against a 0.55 threshold and take two of the four slots.
+        Assert.True(
+            RecipeDishConcept.IsSameDish(first, second),
+            $"\"{second}\" is \"{first}\" described more fully, so it should not fill a second slot.");
+    }
+
+    [Fact]
+    public void A_title_reduced_to_one_ingredient_does_not_swallow_the_batch()
+    {
+        // The guard on the rule above. "Quick Baked Potatoes" reduces to the single word "potato", which
+        // every potato dish contains; without the guard one bare title would absorb a whole batch.
+        Assert.False(RecipeDishConcept.IsSameDish("Quick Baked Potatoes", "Easy Creamy Cheesy Potato Bake"));
+        Assert.False(RecipeDishConcept.IsSameDish("Chicken", "Chicken and Rice"));
+    }
+
+    [Theory]
     // Genuinely different dinners from the same main ingredient. Merging these would hide real variety,
     // which is the opposite of the problem being fixed.
     [InlineData("Barbecue Beef Brisket", "Slow-Roast Beef Brisket")]

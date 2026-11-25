@@ -181,6 +181,23 @@ public static class RecipeDishConcept
         }
 
         var shared = a.Count(token => b.Contains(token));
+
+        // One title's content words all appearing in the other is one dinner written up at greater length:
+        // "Easy chicken curry" inside "Best Indian Chicken Curry With Yoghurt", "Aubergine parmigiana"
+        // inside "Aubergine Parmigiana (Melanzane alla Parmigiana)". Overlap scoring cannot catch those,
+        // because every extra word the fuller title carries counts against the score: both pairs land on
+        // 0.50 against the 0.55 threshold, and each took two of four slots in a measured search.
+        //
+        // Two content words at least, so a title that reduces to a single ingredient cannot absorb
+        // everything mentioning it -- "Quick Baked Potatoes" is just "potato" once filler is dropped. The
+        // method and form test above has already run, which is what still keeps "Beef Brisket" apart from
+        // "Beef Brisket Tacos" even though one contains the other.
+        var smaller = Math.Min(a.Count, b.Count);
+        if (smaller >= 2 && shared == smaller)
+        {
+            return true;
+        }
+
         var union = a.Count + b.Count - shared;
         return union > 0 && (double)shared / union >= 0.55;
     }
