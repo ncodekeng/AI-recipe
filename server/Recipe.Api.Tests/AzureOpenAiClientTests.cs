@@ -141,6 +141,78 @@ public sealed class AzureOpenAiClientTests
         Assert.Equal("Azure OpenAI", result.Provider);
     }
 
+    [Fact]
+    public async Task A_photo_the_safety_filter_refuses_is_reported_as_refused()
+    {
+        // Measured on 25 November 2026: two photos were refused three times over, and the app said only
+        // "An error occurred while processing your request", so the same photos were sent again twice for
+        // nothing. A refusal is the one photo failure the customer can act on, and a retry never helps.
+        var handler = new RoutingHandler(_ => Refused());
+        var client = CreateClient(handler);
+
+        var exception = await Assert.ThrowsAsync<PhotoRefusedException>(() =>
+            client.AnalyzeIngredientsAsync(
+                [new UploadedPhoto("brisket.jpg", "image/jpeg", [1, 2, 3])],
+                CancellationToken.None));
+
+        // The message carries no part of Azure's response: that body quotes the request back.
+        Assert.DoesNotContain("content_policy", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task One_refused_photo_does_not_lose_the_others()
+    {
+        // Somebody photographing a raw joint and a vegetable drawer should still get the vegetables.
+        var handler = new RoutingHandler(body => body.Contains("brisket.jpg", StringComparison.Ordinal)
+            ? Refused()
+            : Success("""
+                {"ingredients":[
+                  {"name":"Carrots","quantity":"4","confidence":90,"kind":"Ingredient"}
+                ],"ignoredImage":false}
+                """));
+        var client = CreateClient(handler);
+
+        var result = await client.AnalyzeIngredientsAsync(
+            [
+                new UploadedPhoto("brisket.jpg", "image/jpeg", [1, 2, 3]),
+                new UploadedPhoto("drawer.jpg", "image/jpeg", [4, 5, 6]),
+            ],
+            CancellationToken.None);
+
+        Assert.Contains(result.Ingredients, ingredient =>
+            ingredient.Name.Contains("Carrot", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task A_failure_that_is_not_a_refusal_is_not_reported_as_one()
+    {
+        // A broken deployment, a bad key or a rate limit is our problem, not a photo the customer can
+        // retake. Telling them to try a different picture would send them chasing the wrong thing.
+        var handler = new RoutingHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError)
+        {
+            Content = new StringContent("upstream exploded", Encoding.UTF8, "application/json"),
+        });
+        var client = CreateClient(handler);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.AnalyzeIngredientsAsync(
+                [new UploadedPhoto("fridge.jpg", "image/jpeg", [1, 2, 3])],
+                CancellationToken.None));
+
+        Assert.IsNotType<PhotoRefusedException>(exception);
+    }
+
+    /// <summary>Azure's own response when its content safety filter refuses an image.</summary>
+    private static HttpResponseMessage Refused() => new(HttpStatusCode.BadRequest)
+    {
+        Content = new StringContent(
+            """
+            {"error":{"message":"Your input image may contain content that is not allowed by our content safety system.","type":"invalid_request_error","param":null,"code":"content_policy_violation"}}
+            """,
+            Encoding.UTF8,
+            "application/json"),
+    };
+
     private static AzureOpenAiClient CreateClient(
         HttpMessageHandler handler,
         string? ingredientRecognitionPrompt = null,

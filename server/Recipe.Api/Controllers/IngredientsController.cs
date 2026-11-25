@@ -10,7 +10,8 @@ public sealed class IngredientsController(
     IRecipeAiService recipeAi,
     IngredientScanCache scanCache,
     AdminSessionService adminSessions,
-    AiUsageGuard usageGuard) : ControllerBase
+    AiUsageGuard usageGuard,
+    ILogger<IngredientsController> logger) : ControllerBase
 {
     private const int MaxPhotoCount = 50;
     private const long MaxPhotoBytes = 5 * 1024 * 1024;
@@ -95,7 +96,33 @@ public sealed class IngredientsController(
         using var usageLease = admission.Lease!;
         Response.Headers["X-Plate-Scans-Remaining"] = admission.Status.ScansRemaining.ToString();
 
-        var result = await recipeAi.AnalyzeIngredientsAsync(uploadedPhotos, cancellationToken);
+        IngredientAnalysisResponse result;
+        try
+        {
+            result = await recipeAi.AnalyzeIngredientsAsync(uploadedPhotos, cancellationToken);
+        }
+        catch (PhotoRefusedException exception)
+        {
+            // Said plainly, because the customer is the only one who can fix it and sending the same photo
+            // again never will. The generic handler returned "An error occurred while processing your
+            // request", which reads as a broken app and invites exactly that retry.
+            logger.LogInformation(
+                exception,
+                "Azure's content safety filter refused all {PhotoCount} uploaded photos.",
+                uploadedPhotos.Count);
+
+            return StatusCode(StatusCodes.Status422UnprocessableEntity, new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "That photo could not be scanned",
+                Detail = uploadedPhotos.Count == 1
+                    ? "The photo was refused by the image safety checks, which happens most often with raw "
+                      + "meat or fish. Try a different photo, or add the ingredients by hand."
+                    : "Every photo was refused by the image safety checks, which happens most often with raw "
+                      + "meat or fish. Try different photos, or add the ingredients by hand.",
+            });
+        }
+
         scanCache.Store(clientKey, uploadedPhotos, result);
         return Ok(result);
     }

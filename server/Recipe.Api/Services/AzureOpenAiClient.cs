@@ -72,8 +72,22 @@ public sealed class AzureOpenAiClient(
             .ToList();
         if (successful.Count == 0)
         {
-            var firstFailure = outcomes.Select(outcome => outcome?.Error).FirstOrDefault(error => error is not null);
-            throw new InvalidOperationException("Azure could not analyse any of the uploaded photos.", firstFailure);
+            var failures = outcomes.Select(outcome => outcome?.Error).Where(error => error is not null).ToList();
+
+            // Every photo refused by the content filter is a different message from the scan being broken:
+            // the customer can retake the photo, and retrying this one never helps. Measured on 25 November
+            // 2026, two photos were refused three times over and the app said only "An error occurred while
+            // processing your request", so the same photos were sent again twice for nothing.
+            if (failures.Count > 0 && failures.All(error => error is PhotoRefusedException))
+            {
+                throw new PhotoRefusedException(
+                    "Azure's content safety filter refused every uploaded photo.",
+                    failures[0]);
+            }
+
+            throw new InvalidOperationException(
+                "Azure could not analyse any of the uploaded photos.",
+                failures.FirstOrDefault());
         }
 
         var ingredients = MergeIngredients(successful.SelectMany(outcome => outcome.Ingredients));
@@ -194,6 +208,20 @@ public sealed class AzureOpenAiClient(
 
         if (!response.IsSuccessStatusCode)
         {
+            // Azure's content safety filter refusing the image, rather than anything being broken. It is
+            // separated here because it is the one failure the customer can actually act on, and because
+            // retrying it is pointless: the same photo is refused every time. A raw meat or fish photo is
+            // the usual cause, and a recipe app is exactly where people take those.
+            if (responseBody.Contains("content_policy_violation", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new PhotoRefusedException(
+                    "Azure's content safety filter refused the photo.",
+                    new HttpRequestException(
+                        $"Azure OpenAI refused the image with status {(int)response.StatusCode}.",
+                        null,
+                        response.StatusCode));
+            }
+
             throw new HttpRequestException(
                 $"Azure OpenAI request failed with status {(int)response.StatusCode}: {responseBody}",
                 null,
@@ -417,3 +445,13 @@ public sealed class AzureOpenAiClient(
         public string Kind { get; init; } = "Ingredient";
     }
 }
+
+/// <summary>
+/// Azure's content safety filter refused a photo. Not a fault: the request reached Azure and was answered.
+///
+/// It is its own type because it is the only photo failure a customer can do something about, and because
+/// the thing they would otherwise do -- send it again -- can never work. The same image is refused every
+/// time. Raw meat and fish are the usual trigger, which a recipe app sees constantly.
+/// </summary>
+public sealed class PhotoRefusedException(string message, Exception? innerException = null)
+    : Exception(message, innerException);
