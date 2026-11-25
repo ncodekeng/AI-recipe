@@ -31,10 +31,13 @@ public sealed class GoogleRecipeSearchClient(
     IRecipeDiscoveryProvider discovery,
     PublisherRecipePageClient publisherPages,
     IngredientNormalizer normalizer,
+    LlmQueryPlanner llmQueries,
     IOptions<RecipeCatalogOptions> options,
+    IOptions<FoodAiOptions> foodAiOptions,
     ILogger<GoogleRecipeSearchClient> logger)
 {
     private readonly GoogleSearchOptions _options = options.Value.GoogleSearch;
+    private readonly QueryPlanningOptions _planning = foodAiOptions.Value.QueryPlanning;
 
     /// <summary>Below this a page is a fragment, an index or an advert, not a recipe.</summary>
     private const int MinimumIngredientLines = 3;
@@ -68,12 +71,46 @@ public sealed class GoogleRecipeSearchClient(
             maxCount: 3,
             mainIngredient: request.MainIngredient);
 
+        var planning = System.Diagnostics.Stopwatch.StartNew();
         var queries = RecipeSearchPlanner.Plan(
             request,
             _options.MaxQueries,
             batchesAlready * _options.MaxQueries,
             searchFocus,
             normalizer);
+
+        // The deterministic plan is always computed first, so a model is an upgrade on something that
+        // already works rather than a dependency. Under investigation: see QueryPlanningOptions.
+        var planSource = "deterministic";
+        if (_planning.UsesLlm && llmQueries.IsConfigured && batchesAlready == 0)
+        {
+            var choice = _planning.IsHybrid
+                ? QueryPlanChoice.For(request, normalizer, queries, _planning.ComplexBasketSize)
+                : new QueryPlanChoice.Decision(true, "llm");
+
+            if (choice.AskTheModel)
+            {
+                var suggested = await llmQueries.PlanAsync(request, _options.MaxQueries, cancellationToken);
+                if (suggested.Count > 0)
+                {
+                    queries = suggested;
+                    planSource = choice.Reason;
+                }
+                else
+                {
+                    // A model that cannot answer makes the search ordinary, not failed.
+                    planSource = $"{choice.Reason} (fell back)";
+                }
+            }
+        }
+
+        var planningMs = planning.ElapsedMilliseconds;
+        logger.LogInformation(
+            "QUERY PLAN mode={Mode} source={Source} queries={Count} elapsed={ElapsedMs}ms",
+            _planning.Mode,
+            planSource,
+            queries.Count,
+            planningMs);
 
         if (queries.Count == 0)
         {

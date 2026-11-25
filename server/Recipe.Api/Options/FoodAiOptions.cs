@@ -9,6 +9,41 @@ public sealed class FoodAiOptions
     public AzureOpenAiOptions AzureOpenAI { get; init; } = new();
     public IngredientScanCacheOptions ScanCache { get; init; } = new();
     public CookingGuideOptions CookingGuide { get; init; } = new();
+    public QueryPlanningOptions QueryPlanning { get; init; } = new();
+}
+
+/// <summary>
+/// Asking a model what to search for, which is under investigation rather than in use.
+///
+/// Deterministic by default: RecipeSearchPlanner and CuisineDishes do the same job from a dictionary and a
+/// dish table, for nothing, in no measurable time. This exists so the alternative can be measured on the
+/// same baskets through the same extraction, validation and ranking.
+/// </summary>
+public sealed class QueryPlanningOptions
+{
+    /// <summary>Deterministic, Llm, or Hybrid.</summary>
+    public string Mode { get; init; } = "Deterministic";
+
+    /// <summary>Enough for six short queries and the JSON around them.</summary>
+    public int MaxOutputTokens { get; init; } = 600;
+
+    /// <summary>
+    /// A deadline for the one call. Short on purpose: past this the deterministic plan is already in hand
+    /// and waiting longer costs the customer more than the better queries could be worth.
+    /// </summary>
+    public int TimeoutSeconds { get; init; } = 8;
+
+    /// <summary>
+    /// In Hybrid, a basket of at least this many ingredients counts as a complex combination worth asking
+    /// about. Below it the dish table handles the common cases perfectly well.
+    /// </summary>
+    public int ComplexBasketSize { get; init; } = 5;
+
+    public bool UsesLlm =>
+        Mode.Equals("Llm", StringComparison.OrdinalIgnoreCase) ||
+        Mode.Equals("Hybrid", StringComparison.OrdinalIgnoreCase);
+
+    public bool IsHybrid => Mode.Equals("Hybrid", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class AzureOpenAiOptions

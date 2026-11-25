@@ -65,6 +65,13 @@ builder.Services.AddHttpClient<CookingGuideWriter>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(40);
 });
+// Asking a model what to search for, which is under investigation rather than in use. A short timeout
+// because the deterministic plan is already in hand: waiting longer costs the customer more than better
+// queries could be worth.
+builder.Services.AddHttpClient<LlmQueryPlanner>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 // Discovery through Serper. A short timeout on purpose: this step exists to be fast, and a slow search
 // provider should be dropped and worked around rather than allowed to stretch the whole request. The
 // per-query deadline inside the provider is shorter still.

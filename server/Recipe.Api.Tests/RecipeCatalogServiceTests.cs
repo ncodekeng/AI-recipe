@@ -390,7 +390,12 @@ public sealed class RecipeCatalogServiceTests
                     NullLogger<SerperDiscoveryProvider>.Instance),
                 publisherPages,
                 normalizer,
+                new LlmQueryPlanner(
+                    new HttpClient(),
+                    Microsoft.Extensions.Options.Options.Create(new FoodAiOptions()),
+                    NullLogger<LlmQueryPlanner>.Instance),
                 options,
+                foodAiOptions,
                 NullLogger<GoogleRecipeSearchClient>.Instance),
             new EdamamRecipeClient(recipeHttpClient, options, normalizer),
             publisherPages,

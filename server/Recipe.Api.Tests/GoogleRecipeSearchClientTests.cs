@@ -401,7 +401,14 @@ public sealed class GoogleRecipeSearchClientTests
             new StubDiscovery(candidates, queriesSeen),
             publisherPages,
             new IngredientNormalizer(),
+            // No model is configured, so the planner is unavailable and planning stays deterministic --
+            // which is what every test in this file is about.
+            new LlmQueryPlanner(
+                new HttpClient(),
+                Microsoft.Extensions.Options.Options.Create(new FoodAiOptions()),
+                NullLogger<LlmQueryPlanner>.Instance),
             options,
+            Microsoft.Extensions.Options.Options.Create(new FoodAiOptions()),
             NullLogger<GoogleRecipeSearchClient>.Instance);
 
         return await client.FindRecipesAsync(request, CancellationToken.None);

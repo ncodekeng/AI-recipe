@@ -235,6 +235,12 @@ public sealed partial class IngredientNormalizer
     /// </summary>
     public int DistinctivenessWeight(string ingredient) => RecipeSearchPriority(Normalize(ingredient));
 
+    /// <summary>
+    /// Is this an ingredient the concept table actually knows, rather than one that merely normalized to its
+    /// own words? Used to spot a basket the dish table cannot reason about.
+    /// </summary>
+    public bool IsKnownConcept(string ingredient) => KnownConcepts.Contains(Normalize(ingredient));
+
     public IReadOnlyList<string> SelectRecipeSearchFocus(
         IEnumerable<IngredientInput> ingredients,
         int maxCount,
