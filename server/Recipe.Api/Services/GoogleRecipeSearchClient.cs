@@ -72,7 +72,8 @@ public sealed class GoogleRecipeSearchClient(
             request,
             _options.MaxQueries,
             batchesAlready * _options.MaxQueries,
-            searchFocus);
+            searchFocus,
+            normalizer);
 
         if (queries.Count == 0)
         {
@@ -328,7 +329,7 @@ public sealed class GoogleRecipeSearchClient(
             $"Published by {domain}.",
             totalMinutes,
             DifficultyFor(totalMinutes, page.IngredientLines.Count),
-            string.IsNullOrWhiteSpace(request.CuisinePreference) ? "Not stated" : request.CuisinePreference.Trim(),
+            CuisineFor(page),
             page.Servings ?? Math.Max(1, request.Servings),
             IngredientMatch: 0,
             Tags: [],
@@ -349,6 +350,20 @@ public sealed class GoogleRecipeSearchClient(
             PublisherPageVerified: true,
             PublisherImageCandidateUrl: page.ImageUrl);
     }
+
+    /// <summary>
+    /// What cuisine this recipe actually is, on the evidence.
+    ///
+    /// It used to echo back whatever the customer picked, so a recipe was labelled Mexican because Mexican
+    /// had been asked for -- a claim about the dish made from the question rather than the answer. The
+    /// publisher's own recipeCuisine comes first, then the dish the title names, and where neither says
+    /// anything the honest answer is that it is not stated. A missing label never costs a recipe its place:
+    /// plenty of good recipes fill in no metadata at all.
+    /// </summary>
+    private static string CuisineFor(PublisherPageRecipe page) =>
+        CuisineDishes.Canonicalise(page.Cuisine)
+        ?? CuisineDishes.FromDishName(page.Title)
+        ?? "Not stated";
 
     private static int? Sum(int? first, int? second) =>
         first is null && second is null ? null : (first ?? 0) + (second ?? 0);

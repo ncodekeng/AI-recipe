@@ -167,7 +167,8 @@ public sealed class PublisherRecipePageClient
                     recipe.TotalMinutes,
                     recipe.Servings,
                     recipe.CaloriesPerServing,
-                    recipe.ImageUrl))
+                    recipe.ImageUrl,
+                    recipe.Cuisine))
                 .ToList();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -787,7 +788,32 @@ public sealed class PublisherRecipePageClient
             ReadDurationMinutes(recipe, "totalTime"),
             ReadServings(recipe),
             ReadCalories(recipe),
-            ReadImageUrl(recipe, sourceUri));
+            ReadImageUrl(recipe, sourceUri),
+            ReadCuisine(recipe));
+    }
+
+    /// <summary>
+    /// schema.org recipeCuisine, where the publisher states it.
+    ///
+    /// Their own word for what they cooked, which beats inferring it from a title and beats echoing back
+    /// whatever the customer asked for. Often absent, and absence means nothing either way -- plenty of
+    /// excellent recipes never fill the field in.
+    ///
+    /// A page may give several ("Mexican", "Tex-Mex"), so ReadStringArray handles both a bare string and an
+    /// array, and the first usable value is taken.
+    /// </summary>
+    private static string? ReadCuisine(JsonElement recipe)
+    {
+        foreach (var value in ReadStringArray(recipe, "recipeCuisine"))
+        {
+            var cleaned = CleanText(value);
+            if (cleaned.Length is > 0 and <= 60)
+            {
+                return cleaned;
+            }
+        }
+
+        return null;
     }
 
     private IReadOnlyList<RecipeIngredient> MapIngredients(
@@ -1157,7 +1183,8 @@ public sealed class PublisherRecipePageClient
         int? TotalMinutes,
         int? Servings,
         int? CaloriesPerServing,
-        string? ImageUrl);
+        string? ImageUrl,
+        string? Cuisine = null);
 
     private sealed record CachedPublisherPage(IReadOnlyList<PublisherRecipeData> Recipes);
 

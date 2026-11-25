@@ -28,12 +28,23 @@ public sealed class RecipeSearchPlannerTests
     public void A_chosen_cuisine_is_kept_in_every_query()
     {
         // A cuisine is a requirement, not a hint. Varying it would return dishes the customer said no to.
-        var queries = RecipeSearchPlanner.Plan(
-            Request(main: "chicken", cuisine: "Japanese"),
-            maxQueries: 4);
+        //
+        // What "kept" means changed on 25 November 2026. Every query used to carry the word, which is what
+        // pushed image search towards pages with the cuisine in the title instead of pages about the dish.
+        // Now a query either names the cuisine or names one of its dishes -- "katsu curry" is as Japanese as
+        // "Japanese", and more use to a search engine.
+        var normalizer = new IngredientNormalizer();
+        var request = Request(main: "chicken", cuisine: "Japanese");
+        var queries = RecipeSearchPlanner.Plan(request, maxQueries: 4, normalizer: normalizer);
 
-        Assert.All(queries, query => Assert.Contains("Japanese", query, StringComparison.OrdinalIgnoreCase));
-        Assert.True(queries.Count >= 2, "the dish form should still vary inside the cuisine");
+        var japaneseDishes = CuisineDishes.For("Japanese", new HashSet<string> { "chicken" })
+            .Select(dish => dish.Name)
+            .ToList();
+        Assert.All(queries, query => Assert.True(
+            query.Contains("Japanese", StringComparison.OrdinalIgnoreCase) ||
+            japaneseDishes.Any(dish => query.Contains(dish, StringComparison.OrdinalIgnoreCase)),
+            $"neither the cuisine nor one of its dishes: {query}"));
+        Assert.True(queries.Count >= 2, "the dish should still vary inside the cuisine");
     }
 
     [Fact]
@@ -43,10 +54,24 @@ public sealed class RecipeSearchPlannerTests
             Request(main: "beef brisket", cuisine: "Surprise Me"),
             maxQueries: 5);
 
-        // The point of Surprise Me: the same joint, cooked several different ways.
-        var cuisines = new[] { "Italian", "Indian", "Mexican", "Japanese", "Thai", "Chinese", "French" };
-        var hits = cuisines.Count(c => queries.Any(q => q.Contains(c, StringComparison.OrdinalIgnoreCase)));
-        Assert.True(hits >= 2, $"expected several cuisines, got: {string.Join(" | ", queries)}");
+        // The point of Surprise Me: the same joint, cooked several different ways. A kitchen is reached
+        // either by its name or by one of its dishes -- "tacos" is as Mexican as the word Mexican, and a
+        // search engine does more with it. So the test counts kitchens reached, however they were reached.
+        var all = string.Join(" | ", queries);
+        var reached = Kitchens.Count(kitchen =>
+            all.Contains(kitchen.Cuisine, StringComparison.OrdinalIgnoreCase) ||
+            kitchen.Dishes.Any(dish => all.Contains(dish, StringComparison.OrdinalIgnoreCase)));
+        Assert.True(reached >= 2, $"expected several kitchens, got: {all}");
+
+        // And with a normalizer the dish is chosen to suit the basket rather than being the typical one.
+        var fitted = string.Join(" | ", RecipeSearchPlanner.Plan(
+            Request(main: "beef brisket", cuisine: "Surprise Me"),
+            maxQueries: 6,
+            normalizer: new IngredientNormalizer()));
+        var beefDishes = new[] { "ragu", "lasagne", "keema", "tacos", "chilli", "bulgogi", "goulash", "kebab", "meatballs" };
+        Assert.True(
+            beefDishes.Count(dish => fitted.Contains(dish, StringComparison.OrdinalIgnoreCase)) >= 2,
+            $"expected several beef dishes, got: {fitted}");
     }
 
     [Fact]
@@ -225,6 +250,18 @@ public sealed class RecipeSearchPlannerTests
         var queries = RecipeSearchPlanner.Plan(Request(main: "beef"), maxQueries: requested);
         Assert.InRange(queries.Count, 1, 8);
     }
+
+    /// <summary>A kitchen is recognisable by its name or by any of its dishes.</summary>
+    private static readonly (string Cuisine, string[] Dishes)[] Kitchens =
+    [
+        ("Italian", ["pasta", "risotto", "lasagne", "ragu"]),
+        ("Indian", ["curry", "biryani", "dal", "keema"]),
+        ("Mexican", ["tacos", "fajitas", "chilli", "picadillo"]),
+        ("Japanese", ["donburi", "ramen", "teriyaki", "katsu"]),
+        ("Thai", ["pad thai", "massaman", "satay", "tom yum"]),
+        ("Chinese", ["fried rice", "chow mein", "char siu", "kung pao"]),
+        ("French", ["casserole", "gratin", "ratatouille", "bourguignon"]),
+    ];
 
     private static GenerateRecipesRequest Request(
         string main = "",

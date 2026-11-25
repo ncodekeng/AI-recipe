@@ -60,9 +60,27 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
                 normalizer.Matches(mainIngredient, item.Name) ||
                 (!string.IsNullOrWhiteSpace(item.OriginalText) &&
                     normalizer.Matches(mainIngredient, item.OriginalText)));
+        // Two different questions, and the customer's is the first one.
+        //
+        //   coverage     = how much of THEIR basket the recipe uses   (basket utilisation)
+        //   availability = how much of the RECIPE they already have   (recipe completeness)
+        //
+        // These were weighted 0.40 and 0.60, so a recipe was ranked mostly on how little shopping it
+        // needed. That favours short recipes: something with four ingredients, three of them staples, scores
+        // well while using almost nothing the customer actually has. Measured on the client's taco basket on
+        // 25 November 2026, the leading result used 18% of the basket. The weights are now the other way
+        // round, because somebody who put beef, tortillas and peppers in a basket wants those three cooked.
+        //
+        // The main ingredient needs no weight here: a recipe without it is dropped outright above, which is
+        // the strongest preference the ranking can express.
+        // How much of the customer's basket the recipe uses, not capped by how short the recipe is.
+        var basketUtilisation = relevantPantryCount == 0
+            ? 1d
+            : Math.Min(1d, (double)available.Count / relevantPantryCount);
+
         var matchPercentage = mainIngredientPresent
             ? (int)Math.Round(
-                (coverage * 0.40d + availability * 0.60d) * 100d,
+                (basketUtilisation * 0.60d + availability * 0.40d) * 100d,
                 MidpointRounding.AwayFromZero)
             : 0;
         return new RecipeMatch(
@@ -73,6 +91,7 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
             matchPercentage,
             coverage,
             availability,
+            basketUtilisation,
             mainIngredientPresent,
             BuildMatchReason(matchPercentage, available, missing, mainIngredientPresent));
     }
@@ -137,8 +156,19 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
             return [];
         }
 
+        // Nothing is promoted to the front if it uses substantially less of the basket than the best
+        // candidate does. The two picks below exist to lead with something worth cooking -- a traditional
+        // dish a few items short, or something cookable tonight -- and neither is worth burying a far better
+        // match for. Measured on 25 November 2026, a Korean basket led with a sheet-pan japchae using 24% of
+        // the basket because it needed no shopping, above three recipes using 68%.
+        const int promotionBand = 20;
+        var bestMatch = candidates.Max(item => item.Recipe.IngredientMatch);
+        bool StrongEnoughToLead(RankedRecipe item) =>
+            item.Recipe.IngredientMatch >= bestMatch - promotionBand;
+
         var leading = new List<RankedRecipe>();
         var traditionalNearMatch = candidates
+            .Where(StrongEnoughToLead)
             .Where(item => IsTraditional(item.Recipe))
             .Where(item => MissingCount(item.Recipe) is >= 1 and <= 3)
             .OrderBy(item => item.WasRecentlyShown)
@@ -153,8 +183,10 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
 
         var completeMatch = candidates
             .Where(item => MissingCount(item.Recipe) == 0)
+            .Where(StrongEnoughToLead)
             .Where(item => leading.All(selected => selected.Recipe.Id != item.Recipe.Id))
             .OrderBy(item => item.WasRecentlyShown)
+            .ThenByDescending(item => item.Recipe.IngredientMatch)
             .ThenByDescending(item => item.Score)
             .FirstOrDefault();
         if (completeMatch is not null)
@@ -164,19 +196,37 @@ public sealed class RecipeRankingService(IngredientNormalizer normalizer)
 
         if (leading.Count == 0)
         {
-            var fewestMissing = candidates.Min(item => MissingCount(item.Recipe));
+            // Nothing qualified to be promoted, so lead with the best match rather than the shortest
+            // shopping list. This used to pick the recipe missing fewest ingredients, which is how the
+            // sheet-pan japchae reached first place: the band above kept it out of the complete-match pick
+            // and this put it straight back, because needing no shopping also scores highest here.
             leading.Add(candidates
-                .Where(item => MissingCount(item.Recipe) == fewestMissing)
                 .OrderBy(item => item.WasRecentlyShown)
+                .ThenByDescending(item => item.Recipe.IngredientMatch)
                 .ThenByDescending(item => item.Score)
                 .First());
         }
 
         var selectedIds = leading.Select(item => item.Recipe.Id).ToHashSet();
+        // The remainder is varied, but within bands rather than freely.
+        //
+        // It used to be shuffled outright, so a recipe using a fifth of the basket could land above one
+        // using two thirds -- the variety was real and so was the cost of it. Banding by how much of the
+        // basket each uses keeps comparable recipes shuffling against each other while a substantially
+        // stronger match stays above a substantially weaker one. The band is wide enough (a fifth of the
+        // scale) that near-equal recipes still swap places between searches, which is what keeps a repeated
+        // search from looking frozen.
+        const int bandWidth = 20;
         var variedRemainder = candidates
             .Where(item => !selectedIds.Contains(item.Recipe.Id))
-            .Select(item => new { Item = item, RandomOrder = Random.Shared.Next() })
+            .Select(item => new
+            {
+                Item = item,
+                Band = item.Recipe.IngredientMatch / bandWidth,
+                RandomOrder = Random.Shared.Next(),
+            })
             .OrderBy(item => item.Item.WasRecentlyShown)
+            .ThenByDescending(item => item.Band)
             .ThenBy(item => item.RandomOrder)
             .Select(item => item.Item);
 

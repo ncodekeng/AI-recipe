@@ -30,19 +30,14 @@ public static class RecipeSearchPlanner
     // varying the cuisine is not allowed but varying the dish still is.
     private static readonly string[] Forms = ["recipe", "traybake recipe", "stew recipe", "salad recipe", "soup recipe"];
 
-    // One well-known dish per cuisine, for Inspire Me with an empty basket.
+    // The dishes themselves live in CuisineDishes, which replaced the one-dish-per-cuisine list that used to
+    // sit here. That list existed only for Inspire Me with an empty basket; every other search fell back to
+    // the generic Forms above, which is why a Mexican basket of tortillas was never asked about tacos.
     //
-    // A cuisine on its own is too broad to be a recipe query. Measured on 24 November 2026, asking for
-    // "italian recipe" and its siblings returned 19 roundup pages out of 31 candidates -- "30 best Italian
-    // dinners" and the like -- and Inspire Me came back with a single recipe. A query that names a dish
-    // gets pages that are about that dish, because that is what the publisher wrote the page for.
-    private static readonly (string Cuisine, string Dish)[] SignatureDishes =
-    [
-        ("Italian", "pasta"), ("Indian", "curry"), ("Mexican", "tacos"), ("Japanese", "rice bowl"),
-        ("Thai", "curry"), ("Chinese", "stir fry"), ("French", "casserole"), ("Mediterranean", "traybake"),
-        ("Korean", "bibimbap"), ("Caribbean", "stew"), ("British", "pie"), ("Arabic", "kebab"),
-        ("Eastern European", "dumplings"), ("Swedish", "meatballs"), ("Ghanaian", "jollof rice"),
-    ];
+    // A cuisine on its own is too broad to be a recipe query either way. Measured on 24 November 2026,
+    // asking for "italian recipe" and its siblings returned 19 roundup pages out of 31 candidates -- "30
+    // best Italian dinners" and the like -- and Inspire Me came back with a single recipe. A query that
+    // names a dish gets pages about that dish, because that is what the publisher wrote the page for.
 
     /// <summary>
     /// The queries to run, most promising first. Always at least one, never more than <paramref name="maxQueries"/>,
@@ -61,11 +56,18 @@ public static class RecipeSearchPlanner
     /// be in, and measured on 25 November 2026 a basket of salt, olive oil, water, chicken thighs and rice
     /// searched for "salt olive oil water" and returned marinated olives and an olive oil bread dip.
     /// </param>
+    /// <param name="normalizer">
+    /// Supply it and the plan can name dishes: the basket's ingredients are resolved to concepts and matched
+    /// against CuisineDishes, so a Mexican basket holding tortillas is searched for as tacos and fajitas
+    /// rather than as "Mexican beef bread pepper stew". Without it the generic forms are used, which is what
+    /// the plan did for every cuisine before.
+    /// </param>
     public static IReadOnlyList<string> Plan(
         GenerateRecipesRequest request,
         int maxQueries = 4,
         int skip = 0,
-        IReadOnlyList<string>? searchFocus = null)
+        IReadOnlyList<string>? searchFocus = null,
+        IngredientNormalizer? normalizer = null)
     {
         var limit = Math.Clamp(maxQueries, 1, 8);
         var queries = new List<string>();
@@ -74,11 +76,21 @@ public static class RecipeSearchPlanner
         var qualifiers = Qualifiers(request);
         var cuisine = request.CuisinePreference.Trim();
         var surprise = cuisine.Length == 0 || cuisine.Equals("Surprise Me", StringComparison.OrdinalIgnoreCase);
+        var concepts = BasketConcepts(request, normalizer);
 
         if (!surprise)
         {
-            // A chosen cuisine is a requirement, not a hint. Every query keeps it and the dish form varies
-            // instead, so the batch stays inside the cuisine the customer asked for.
+            // The cuisine's own dishes first, best fit for this basket leading. Naming the dish is what
+            // finds the dish: "tacos beef pepper recipe" returns tacos, where "Mexican beef pepper stew
+            // recipe" returns whatever happens to have Mexican in its title.
+            foreach (var dish in CuisineDishes.For(cuisine, concepts))
+            {
+                Add(queries, Compose(CuisineWordFor(dish), dish.Name, SubjectFor(dish, subject, normalizer), "recipe", qualifiers));
+            }
+
+            // The generic forms stay, after the dishes rather than instead of them. They are what a later
+            // Show More batch reaches for once the named dishes are spent, and the fallback for a cuisine
+            // this table says nothing about.
             foreach (var form in Forms)
             {
                 Add(queries, Compose(cuisine, subject, form, qualifiers));
@@ -88,19 +100,24 @@ public static class RecipeSearchPlanner
         {
             // Inspire Me with nothing at all: the cuisines are the only axis available, each anchored to a
             // dish so the query asks for a recipe rather than for a magazine round-up.
-            foreach (var (option, dish) in SignatureDishes)
+            foreach (var option in Cuisines)
             {
-                Add(queries, Compose(option, dish, "recipe", qualifiers));
+                var dish = CuisineDishes.For(option, concepts).FirstOrDefault();
+                Add(queries, Compose(option, dish?.Name ?? string.Empty, "recipe", qualifiers));
             }
         }
         else
         {
-            // Ingredients but no cuisine. The plain query first, because it is the one most likely to
-            // find the obvious dish, then the same ingredients pushed into different kitchens.
+            // Ingredients but no cuisine. The plain query first, because it is the one most likely to find
+            // the obvious dish, then the same ingredients pushed into different kitchens -- each asking for
+            // that kitchen's best fit for this basket rather than for the kitchen's name.
             Add(queries, Compose(string.Empty, subject, "recipe", qualifiers));
             foreach (var option in Cuisines)
             {
-                Add(queries, Compose(option, subject, "recipe", qualifiers));
+                var dish = CuisineDishes.For(option, concepts).FirstOrDefault();
+                Add(queries, dish is null
+                    ? Compose(option, subject, "recipe", qualifiers)
+                    : Compose(CuisineWordFor(dish, option), dish.Name, SubjectFor(dish, subject, normalizer), "recipe", qualifiers));
             }
         }
 
@@ -198,22 +215,82 @@ public static class RecipeSearchPlanner
         return string.Join(' ', parts);
     }
 
-    private static string Compose(string cuisine, string subject, string form, string qualifiers)
+    private static string Compose(params string[] parts)
     {
         var builder = new StringBuilder();
-        void Append(string value)
+        foreach (var part in parts)
         {
-            var trimmed = value.Trim();
-            if (trimmed.Length == 0) return;
-            if (builder.Length > 0) builder.Append(' ');
+            var trimmed = part.Trim();
+            if (trimmed.Length == 0)
+            {
+                continue;
+            }
+
+            if (builder.Length > 0)
+            {
+                builder.Append(' ');
+            }
+
             builder.Append(trimmed);
         }
 
-        Append(cuisine);
-        Append(subject);
-        Append(form);
-        Append(qualifiers);
         return builder.ToString();
+    }
+
+    /// <summary>The basket's ingredients as normalizer concepts, for scoring which dishes fit.</summary>
+    private static ISet<string> BasketConcepts(GenerateRecipesRequest request, IngredientNormalizer? normalizer)
+    {
+        var concepts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (normalizer is null)
+        {
+            return concepts;
+        }
+
+        foreach (var name in request.Ingredients.Select(item => item.Name).Append(request.MainIngredient))
+        {
+            var concept = normalizer.Normalize(name ?? string.Empty);
+            if (concept.Length > 0)
+            {
+                concepts.Add(concept);
+            }
+        }
+
+        return concepts;
+    }
+
+    /// <summary>
+    /// Whether to put the cuisine's name in front of a dish.
+    ///
+    /// A dish only its own cuisine cooks already says which cuisine it is: "tacos" needs no help, and adding
+    /// the word pushes the search towards pages with Mexican in the title instead of pages about tacos --
+    /// which is what the client saw. A dish several cuisines share does need it, because "stir fry" alone
+    /// could be Thai or Chinese and "traybake" could be any of three.
+    /// </summary>
+    private static string CuisineWordFor(CuisineDishes.Dish dish, string? cuisine = null) =>
+        CuisineDishes.IsShared(dish.Name) ? (cuisine ?? CuisineDishes.CuisineOf(dish) ?? string.Empty) : string.Empty;
+
+    /// <summary>
+    /// The ingredients worth naming alongside a dish.
+    ///
+    /// The dish name already implies its carrier -- tacos imply tortillas, risotto implies rice, pad thai
+    /// implies rice noodles -- so repeating it only crowds the query. The protein and the vegetables stay,
+    /// because those are what make this basket's version of the dish.
+    /// </summary>
+    private static string SubjectFor(CuisineDishes.Dish dish, string subject, IngredientNormalizer? normalizer)
+    {
+        if (normalizer is null || subject.Length == 0)
+        {
+            return subject;
+        }
+
+        var kept = subject
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => !normalizer.IsCarrierBase(word))
+            .ToList();
+
+        // Never strip the subject away entirely: a dish with nothing named beside it is a weaker query than
+        // one that repeats a word.
+        return kept.Count == 0 ? subject : string.Join(' ', kept);
     }
 
     private static void Add(List<string> queries, string query)

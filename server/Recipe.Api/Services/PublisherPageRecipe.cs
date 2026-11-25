@@ -16,4 +16,9 @@ public sealed record PublisherPageRecipe(
     int? TotalMinutes,
     int? Servings,
     int? CaloriesPerServing,
-    string? ImageUrl);
+    string? ImageUrl,
+    /// <summary>
+    /// schema.org recipeCuisine, where the publisher states it. Their own word for what they cooked, and
+    /// absent far more often than not -- which says nothing about the recipe either way.
+    /// </summary>
+    string? Cuisine = null);

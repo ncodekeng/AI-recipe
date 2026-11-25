@@ -50,7 +50,9 @@ public sealed class RecipeRankingServiceTests
                 new RecipeIngredient("to taste", "salt")
             ]);
 
-        Assert.Equal(100, match.MatchPercentage);
+        // 85: everything the recipe needs is in the kitchen, but it leaves the bread unused, and basket
+        // utilisation now carries the heavier weight. Nothing is missing, which is the point of the test.
+        Assert.Equal(85, match.MatchPercentage);
         Assert.Empty(match.MissingIngredients);
     }
 
@@ -108,9 +110,12 @@ public sealed class RecipeRankingServiceTests
 
         Assert.Equal(2, match.RequiredIngredientCount);
         Assert.Equal(1, match.AvailableIngredientCount);
-        Assert.Equal(70, match.MatchPercentage);
         Assert.Equal(1d, match.Coverage);
         Assert.Equal(0.5d, match.Availability);
+        // Coverage 1.0 at 0.60 plus availability 0.5 at 0.40. It was 70 while completeness carried the
+        // heavier weight; the customer's whole basket is used here, so the higher number is the right way
+        // round. See CalculateMatch for why the weights were swapped on 25 November 2026.
+        Assert.Equal(80, match.MatchPercentage);
         var missing = Assert.Single(match.MissingIngredients);
         Assert.Equal("Garlic", missing.Name);
         Assert.Equal(2, missing.Quantity);
@@ -135,8 +140,13 @@ public sealed class RecipeRankingServiceTests
 
         var ranked = service.Rank(recipes, pantry);
 
+        // The complete match still leads: it uses two of the three basket items and needs no shopping, and
+        // the stuffed peppers using all three scores only 10 higher, which is inside the band where a
+        // zero-shopping recipe is still allowed to lead.
         Assert.Equal("Chicken and onion", ranked[0].Title);
-        Assert.Equal(100, ranked[0].IngredientMatch);
+        // 80, not 100: it ignores the customer's peppers. The old number divided by the recipe's own length,
+        // so any recipe short enough to use everything it could read as a perfect match.
+        Assert.Equal(80, ranked[0].IngredientMatch);
         Assert.Empty(ranked[0].MissingIngredients!);
         Assert.Equal("feta cheese", Assert.Single(ranked[1].MissingIngredients!).Name);
     }
@@ -283,7 +293,8 @@ public sealed class RecipeRankingServiceTests
             mainIngredient: "chicken breast");
 
         Assert.Equal(chicken.Id, Assert.Single(ranked).Id);
-        Assert.Contains("100% match", ranked[0].MatchReason);
+        // 80, because it uses the chicken and the onion and leaves the potato alone.
+        Assert.Contains("80% match", ranked[0].MatchReason);
     }
 
     [Fact]
@@ -317,8 +328,10 @@ public sealed class RecipeRankingServiceTests
         Assert.Contains("\"imageRightsStatus\":\"VerifiedCommercial\"", json);
         Assert.Contains("\"availableIngredients\"", json);
         Assert.Contains("\"missingIngredients\"", json);
-        Assert.Contains("\"ingredientMatch\":70", json);
-        Assert.Contains("\"matchReason\":\"70% match", json);
+        // 80, not 70, since basket utilisation began outweighing recipe completeness. The point of this
+        // test is that the number and its reason reach the wire together, whatever the number is.
+        Assert.Contains("\"ingredientMatch\":80", json);
+        Assert.Contains("\"matchReason\":\"80% match", json);
         Assert.Contains("\"imageProvider\":\"Wikimedia Commons\"", json);
         Assert.Contains("\"imageVerified\":true", json);
     }
@@ -353,6 +366,50 @@ public sealed class RecipeRankingServiceTests
             mainIngredient: "chicken");
 
         Assert.Single(ranked);
+    }
+
+    [Fact]
+    public void A_weak_match_never_outranks_a_substantially_stronger_one()
+    {
+        // The remainder used to be shuffled outright, so a recipe using a fifth of the basket could land
+        // above one using two thirds. Variety is still wanted between comparable recipes, so the shuffle
+        // happens inside bands -- run repeatedly here, because a single pass could pass by luck.
+        var pantry = new[]
+        {
+            new IngredientInput("Beef", "500 g"),
+            new IngredientInput("Tortillas", "8"),
+            new IngredientInput("Peppers", "3"),
+        };
+
+        var strong = Recipe("Beef and pepper tacos", "beef", "tortillas", "peppers");
+        var weak = Recipe("Beef consomme", "beef", "water", "celery", "leek", "bay leaf", "peppercorns");
+
+        // The shape that actually got through: the weak recipe needs NO shopping while the strong one does,
+        // so every rule that rewards a short shopping list puts the weak one first. Measured on a Korean
+        // basket on 25 November 2026, a sheet-pan japchae using 24% of the basket led three recipes using
+        // 68%, because it was the only recipe missing nothing.
+        var weakButComplete = Recipe("Beef broth", "beef");
+        var strongButShopping = Recipe(
+            "Beef, tortilla and pepper bake", "beef", "tortillas", "peppers", "cheddar", "soured cream");
+        for (var attempt = 0; attempt < 25; attempt++)
+        {
+            var ranked = new RecipeRankingService(_normalizer)
+                .Rank([weakButComplete, strongButShopping], pantry, mainIngredient: "beef");
+
+            Assert.Equal(strongButShopping.Title, ranked[0].Title);
+        }
+
+        for (var attempt = 0; attempt < 25; attempt++)
+        {
+            var ranked = new RecipeRankingService(_normalizer)
+                .Rank([weak, strong], pantry, mainIngredient: "beef");
+
+            var strongPlace = ranked.ToList().FindIndex(item => item.Title == strong.Title);
+            var weakPlace = ranked.ToList().FindIndex(item => item.Title == weak.Title);
+            Assert.True(
+                strongPlace < weakPlace,
+                $"attempt {attempt}: the stronger match placed {strongPlace}, the weaker {weakPlace}");
+        }
     }
 
     [Fact]
