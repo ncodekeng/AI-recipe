@@ -148,6 +148,39 @@ public sealed class GoogleRecipeSearchClient(
 
         var collected = await ReadUntilEnoughAsync(worthReading, request, target, cancellationToken);
 
+        // A weak batch is worth asking a model about, where guessing beforehand was not. Off by default and
+        // unbenchmarked; see QueryPlanningOptions. Applied to a later batch rather than the first, because
+        // the first is what the customer is waiting for and this doubles the search.
+        if (_planning.ResultQualityFallback &&
+            llmQueries.IsConfigured &&
+            (continuation || _planning.FallbackOnFirstBatch) &&
+            planSource == "deterministic")
+        {
+            var verdict = BatchQuality.Assess(collected.Recipes, request, target, _planning);
+            if (verdict.Weak)
+            {
+                var replanned = await llmQueries.PlanAsync(request, _options.MaxQueries, cancellationToken);
+                if (replanned.Count > 0)
+                {
+                    logger.LogInformation(
+                        "BATCH RETRY reason={Reason} had={Had} target={Target}",
+                        verdict.Reason,
+                        collected.Recipes.Count,
+                        target);
+
+                    var retried = await SearchAgainAsync(
+                        replanned, request, target, alreadyShown, collected, cancellationToken);
+
+                    // Only if it actually did better. A retry that finds less keeps what was already in hand.
+                    if (retried is not null && retried.Recipes.Count > collected.Recipes.Count)
+                    {
+                        collected = retried;
+                        planSource = $"retry: {verdict.Reason}";
+                    }
+                }
+            }
+        }
+
         if (collected.Recipes.Count == 0)
         {
             if (continuation)
@@ -180,6 +213,71 @@ public sealed class GoogleRecipeSearchClient(
             collected.RejectedThin);
 
         return new RecipeGenerationResponse(collected.Recipes, "Google Search", Notice);
+    }
+
+    /// <summary>
+    /// One more pass with a different plan, keeping whatever the first pass already found.
+    ///
+    /// Everything the first pass accepted is excluded by URL and by publisher, so the retry adds rather
+    /// than repeats. Returns null when it found nothing worth having.
+    /// </summary>
+    private async Task<Collected?> SearchAgainAsync(
+        IReadOnlyList<string> queries,
+        GenerateRecipesRequest request,
+        int target,
+        HashSet<Guid> alreadyShown,
+        Collected first,
+        CancellationToken cancellationToken)
+    {
+        var seen = new HashSet<Guid>(alreadyShown);
+        foreach (var recipe in first.Recipes)
+        {
+            seen.Add(recipe.Id);
+        }
+
+        var candidates = await discovery.DiscoverAsync(queries, _options.ResultsPerQuery, cancellationToken);
+        var worthReading = candidates
+            .Where(candidate => !RecipeDishConcept.IsListingPage(candidate.Title, candidate.Url))
+            .Where(candidate => !RecipeDishConcept.IsUnsuitableSource(candidate.Url))
+            .Where(candidate => !seen.Contains(StableGuid(candidate.Url)))
+            .Take(Math.Clamp(_options.MaxPagesRead, 1, 60))
+            .ToList();
+        if (worthReading.Count == 0)
+        {
+            return null;
+        }
+
+        var extra = await ReadUntilEnoughAsync(worthReading, request, target, cancellationToken);
+        if (extra.Recipes.Count == 0)
+        {
+            return null;
+        }
+
+        // Merged, first pass first, one recipe per publisher and one per dish across both.
+        var merged = first.Recipes.ToList();
+        var domains = merged.Select(recipe => DomainOf(recipe.SourceUrl ?? string.Empty))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var recipe in extra.Recipes)
+        {
+            if (merged.Count >= target)
+            {
+                break;
+            }
+
+            if (merged.Any(existing => RecipeDishConcept.IsSameDish(existing.Title, recipe.Title)) ||
+                !domains.Add(DomainOf(recipe.SourceUrl ?? string.Empty)))
+            {
+                continue;
+            }
+
+            merged.Add(recipe);
+        }
+
+        return first with
+        {
+            Recipes = merged,
+            PagesRead = first.PagesRead + extra.PagesRead,
+        };
     }
 
     private const string Notice =

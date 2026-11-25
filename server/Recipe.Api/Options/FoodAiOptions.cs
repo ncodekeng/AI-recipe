@@ -44,6 +44,35 @@ public sealed class QueryPlanningOptions
         Mode.Equals("Hybrid", StringComparison.OrdinalIgnoreCase);
 
     public bool IsHybrid => Mode.Equals("Hybrid", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Ask a model to re-plan when a batch comes back weak, rather than guessing beforehand which baskets
+    /// are hard.
+    ///
+    /// Off by default and unbenchmarked. It exists because the Hybrid triggers were measured and did not
+    /// work: they fired on 2 of 17 baskets and neither was one of the two the model actually helped. What
+    /// predicted the model's advantage was the quality of the results, which is only knowable afterwards.
+    ///
+    /// Applied to "show more results" rather than the first batch, by default, because the first batch is
+    /// what the customer is waiting for and a second search would double its latency. A later tap is
+    /// already slower and already a reach for something new.
+    /// </summary>
+    public bool ResultQualityFallback { get; init; }
+
+    /// <summary>Allow the fallback on the first batch too, at the cost of the customer's wait.</summary>
+    public bool FallbackOnFirstBatch { get; init; }
+
+    /// <summary>
+    /// Fewer verified recipes than asked for counts as a weak batch. At or above this fraction of the
+    /// target, the batch stands.
+    /// </summary>
+    public double FallbackVerifiedFraction { get; init; } = 1.0;
+
+    /// <summary>
+    /// Below this fraction of results matching the cuisine asked for, the batch counts as weak. Only
+    /// applied when a cuisine was actually chosen, and only when the publishers stated one.
+    /// </summary>
+    public double FallbackCuisineFraction { get; init; } = 0.5;
 }
 
 public sealed class AzureOpenAiOptions
